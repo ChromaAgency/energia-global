@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_mrp_workorder_components_filter" model="ir.ui.view">
+        <field name="name">mrp.workorder.components.filter</field>
+        <field name="model">mrp.workorder</field>
+        <field name="inherit_id" ref="mrp.mrp_production_workorder_form_view_inherit"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='move_raw_ids']/list//field[@name='product_id']" position="after">
+                <field name="alternative_product_id"/>
+                <field name="related_workcenter_ids" widget="many2many_tags"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_mrp_production_components_alternatives" model="ir.ui.view">
+        <field name="name">mrp.production.components.alternatives</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='move_raw_ids']/list//field[@name='product_id']" position="after">
+                <field name="alternative_product_id"/>
+                <field name="related_workcenter_ids" widget="many2many_tags"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_mrp_bom_line_components_fields" model="ir.ui.view">
+        <field name="name">mrp.bom.line.components.fields</field>
+        <field name="model">mrp.bom</field>
+        <field name="inherit_id" ref="mrp.mrp_bom_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='bom_line_ids']/list//field[@name='product_id']" position="after">
+                <field name="operation_ids" widget="many2many_tags"/>
+                <field name="alternative_product_ids" widget="many2many_tags"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
