@@ -23,9 +23,9 @@ async function loadThreeDependencies() {
     if (window.THREE?.GLTFLoader && window.THREE?.OrbitControls) {
         return window.THREE;
     }
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js");
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.159.0/examples/js/controls/OrbitControls.js");
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.159.0/examples/js/loaders/GLTFLoader.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.148.0/build/three.min.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.148.0/examples/js/controls/OrbitControls.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.148.0/examples/js/loaders/GLTFLoader.js");
     if (!window.THREE?.GLTFLoader || !window.THREE?.OrbitControls) {
         throw new Error("Three.js no esta disponible en assets.");
     }
