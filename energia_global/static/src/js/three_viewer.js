@@ -1,9 +1,12 @@
 /** @odoo-module */
 
 import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
+import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const MODEL_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx"]);
+const DEFAULT_THREE_VERSION = "0.149.0";
+let loadersPromise = null;
 
 function isImageFilename(filename) {
     if (!filename) {
@@ -14,6 +17,27 @@ function isImageFilename(filename) {
         return false;
     }
     return IMAGE_EXTENSIONS.has(parts.pop().toLowerCase());
+}
+
+async function ensureThreeLoaders(THREE) {
+    if (loadersPromise) {
+        await loadersPromise;
+        return;
+    }
+    const revision = THREE?.REVISION;
+    const version = revision ? `0.${revision}.0` : DEFAULT_THREE_VERSION;
+    const baseUrl = `https://cdn.jsdelivr.net/npm/three@${version}/examples/js`;
+    loadersPromise = Promise.all([
+        loadJS(`${baseUrl}/controls/OrbitControls.js`),
+        loadJS(`${baseUrl}/loaders/GLTFLoader.js`),
+        loadJS(`${baseUrl}/loaders/OBJLoader.js`),
+        loadJS(`${baseUrl}/loaders/FBXLoader.js`),
+    ]).then(() => {
+        if (!THREE.OrbitControls || !THREE.GLTFLoader || !THREE.OBJLoader || !THREE.FBXLoader) {
+            throw new Error("No se pudieron cargar los loaders de Three.js.");
+        }
+    });
+    await loadersPromise;
 }
 
 
@@ -35,11 +59,10 @@ export class ThreeJSViewer extends Component {
                 throw new Error("No se encontro un modelo 3D para cargar.");
             }
             const THREE = window.THREE;
-            console.log({window})
-            console.log({THREE})
             if (!THREE) {
                 throw new Error("Three.js no esta disponible en assets.");
             }
+            await ensureThreeLoaders(THREE);
             const container = this.containerRef.el;
             const { width, height } = container.getBoundingClientRect();
             this.scene = new THREE.Scene();
@@ -55,11 +78,8 @@ export class ThreeJSViewer extends Component {
             dirLight.position.set(5, 5, 5);
             this.scene.add(ambientLight, dirLight);
 
-            // if (!THREE.OrbitControls) {
-            //     throw new Error("OrbitControls no esta disponible en assets.");
-            // }
-            // this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-            // this.controls.enableDamping = true;
+            this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+            this.controls.enableDamping = true;
 
             const extension = this._getModelExtension();
             await this._loadModel(THREE, modelUrl, extension);
@@ -73,7 +93,7 @@ export class ThreeJSViewer extends Component {
 
     _startRenderLoop() {
         const animate = () => {
-            // this.controls?.update();
+            this.controls?.update();
             this.renderer?.render(this.scene, this.camera);
             this._animationId = requestAnimationFrame(animate);
         };
@@ -178,8 +198,10 @@ export class ThreeJSViewer extends Component {
         const maxDim = Math.max(size.x, size.y, size.z) || 1;
         const distance = maxDim * 1.8;
         this.camera.position.set(center.x + distance, center.y + distance, center.z + distance);
-        this.controls.target.copy(center);
-        this.controls.update();
+        if (this.controls) {
+            this.controls.target.copy(center);
+            this.controls.update();
+        }
     }
 
     _cleanup() {
