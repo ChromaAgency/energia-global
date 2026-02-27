@@ -47,6 +47,7 @@
         camera.position.set(2, 2, 2);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.setSize(width, height);
         container.appendChild(renderer.domElement);
 
@@ -58,17 +59,27 @@
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
 
+        scene.add(new THREE.AxesHelper(1));
+        scene.add(new THREE.GridHelper(5, 10));
+        const testCube = new THREE.Mesh(
+          new THREE.BoxGeometry(0.2, 0.2, 0.2),
+          new THREE.MeshStandardMaterial({ color: 0x00ff99 })
+        );
+        scene.add(testCube);
+
         const loader = new THREE.GLTFLoader();
         loader.load(
           "./model.glb",
           (gltf) => {
+            console.log("GLB loaded:", gltf);
             scene.add(gltf.scene);
             fitToView(gltf.scene);
-            animate();
+            scene.remove(testCube);
           },
           undefined,
           (error) => console.error("GLB load error:", error)
         );
+
 
         function fitToView(object) {
           const box = new THREE.Box3().setFromObject(object);
@@ -86,6 +97,7 @@
           renderer.render(scene, camera);
           requestAnimationFrame(animate);
         }
+        animate();
       }
     </script>
   </body>
