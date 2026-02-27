@@ -130,9 +130,8 @@ export class ThreeJSViewer extends Component {
             throw new Error("Formato 3D no soportado.");
         }
         const addToScene = (object) => {
-            console.log("Adding model to scene:", object);
+            this._prepareObject(THREE, object);
             this.scene.add(object);
-            console.log("Model added to scene, fitting to view...", this.scene);
             this._fitToView(THREE, object);
         };
         const loadWith = (loader, onSuccess) =>
@@ -171,18 +170,36 @@ export class ThreeJSViewer extends Component {
         await loadWith(loader, (gltf) => addToScene(gltf.scene));
     }
 
+    _prepareObject(THREE, object) {
+        object.traverse((node) => {
+            if (node.isMesh) {
+                const materials = Array.isArray(node.material) ? node.material : [node.material];
+                materials.forEach((material) => {
+                    if (material) {
+                        material.side = THREE.DoubleSide;
+                        material.needsUpdate = true;
+                    }
+                });
+                node.frustumCulled = false;
+            }
+        });
+        object.updateMatrixWorld(true);
+    }
+
     _fitToView(THREE, object) {
         const box = new THREE.Box3().setFromObject(object);
-        console.log("Model bounding box:", box);
+        if (box.isEmpty()) {
+            return;
+        }
         const size = box.getSize(new THREE.Vector3());
-        console.log("Model bounding box:", size);
         const center = box.getCenter(new THREE.Vector3());
-        console.log("Model center:", center);
         const maxDim = Math.max(size.x, size.y, size.z) || 1;
         const distance = maxDim * 1.8;
+        if (distance * 4 > this.camera.far) {
+            this.camera.far = distance * 4;
+            this.camera.updateProjectionMatrix();
+        }
         this.camera.position.set(center.x + distance, center.y + distance, center.z + distance);
-        console.log("Camera position set to:", this.camera.position);
-        console.log("Camera position set to:", this.controls);
         if (this.controls) {
             this.controls.target.copy(center);
             this.controls.update();

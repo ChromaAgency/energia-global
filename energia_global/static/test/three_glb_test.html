@@ -72,6 +72,7 @@
           "./model.glb",
           (gltf) => {
             console.log("GLB loaded:", gltf);
+            prepareObject(gltf.scene);
             scene.add(gltf.scene);
             fitToView(gltf.scene);
             scene.remove(testCube);
@@ -81,12 +82,35 @@
         );
 
 
+        function prepareObject(object) {
+          object.traverse((node) => {
+            if (node.isMesh) {
+              const materials = Array.isArray(node.material) ? node.material : [node.material];
+              materials.forEach((material) => {
+                if (material) {
+                  material.side = THREE.DoubleSide;
+                  material.needsUpdate = true;
+                }
+              });
+              node.frustumCulled = false;
+            }
+          });
+          object.updateMatrixWorld(true);
+        }
+
         function fitToView(object) {
           const box = new THREE.Box3().setFromObject(object);
+          if (box.isEmpty()) {
+            return;
+          }
           const size = box.getSize(new THREE.Vector3());
           const center = box.getCenter(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z) || 1;
           const distance = maxDim * 1.8;
+          if (distance * 4 > camera.far) {
+            camera.far = distance * 4;
+            camera.updateProjectionMatrix();
+          }
           camera.position.set(center.x + distance, center.y + distance, center.z + distance);
           controls.target.copy(center);
           controls.update();
