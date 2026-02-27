@@ -25,13 +25,13 @@
                     </div>
                 </t>
                 <div class="btn-group mt-1">
-                    <button type="button" class="btn btn-primary btn-sm" t-on-click="onStartPiece">
+                    <button type="button" class="btn btn-primary btn-sm" t-if="showStartButton" t-on-click="onStartPiece">
                         Iniciar
                     </button>
-                    <button type="button" class="btn btn-secondary btn-sm" t-on-click="onPausePiece">
+                    <button type="button" class="btn btn-secondary btn-sm" t-if="showPauseStopButtons" t-on-click="onPausePiece">
                         Pausar
                     </button>
-                    <button type="button" class="btn btn-danger btn-sm" t-on-click="onStopPiece">
+                    <button type="button" class="btn btn-danger btn-sm" t-if="showPauseStopButtons" t-on-click="onStopPiece">
                         Detener
                     </button>
                 </div>

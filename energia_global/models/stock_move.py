@@ -11,6 +11,13 @@ class StockMove(models.Model):
 		readonly=True,
 		string="Related Work Centers",
 	)
+	related_operation_ids = fields.Many2many(
+		"mrp.routing.workcenter",
+		compute="_compute_related_operation_ids",
+		store=True,
+		readonly=True,
+		string="Related Operations",
+	)
 	alternative_product_ids = fields.Many2many(
 		"product.product",
 		compute="_compute_alternative_products",
@@ -37,6 +44,24 @@ class StockMove(models.Model):
 		for move in self:
 			move.alternative_product_ids = move.bom_line_id.alternative_product_ids
 			move.alternative_product_id = move.bom_line_id.alternative_product_ids[:1]
+
+	@api.depends(
+		"operation_id",
+		"bom_line_id",
+		"bom_line_id.operation_id",
+		"bom_line_id.operation_ids",
+	)
+	def _compute_related_operation_ids(self):
+		for move in self:
+			operations = self.env["mrp.routing.workcenter"]
+			if move.operation_id:
+				operations |= move.operation_id
+			if move.bom_line_id:
+				if move.bom_line_id.operation_ids:
+					operations |= move.bom_line_id.operation_ids
+				elif move.bom_line_id.operation_id:
+					operations |= move.bom_line_id.operation_id
+			move.related_operation_ids = operations
 
 	@api.depends(
 		"operation_id",

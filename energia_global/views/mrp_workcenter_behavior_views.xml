@@ -3,13 +3,14 @@
     <record id="view_mrp_workcenter_behavior_form" model="ir.ui.view">
         <field name="name">mrp.workcenter.behavior.form</field>
         <field name="model">mrp.workcenter</field>
-        <field name="inherit_id" ref="mrp.mrp_workcenter_view_form"/>
+        <field name="inherit_id" ref="mrp.mrp_workcenter_view"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='name']" position="after">
                 <field name="behavior_type"/>
                 <field
                     name="grouping_field"
-                    attrs="{'invisible': [('behavior_type', '!=', 'grouped')], 'required': [('behavior_type', '=', 'grouped')]}"
+                    invisible="behavior_type != 'grouped'"
+                    required="behavior_type == 'grouped'"
                 />
             </xpath>
         </field>

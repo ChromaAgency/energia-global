@@ -1,9 +1,61 @@
-from odoo import fields, models, _
+from odoo import fields, api, models, _
 from odoo.exceptions import UserError
 
 
 class MrpWorkorder(models.Model):
     _inherit = "mrp.workorder"
+
+    @api.model
+    def resolve_workorder_for_move(self, move_id, workcenter_id=False):
+        move = self.env["stock.move"].browse(move_id).exists()
+        if not move:
+            return False
+        if move.workorder_id:
+            if not workcenter_id or move.workorder_id.workcenter_id.id == workcenter_id:
+                return move.workorder_id.id
+        production = move.raw_material_production_id or move.production_id
+        if not production:
+            return False
+        workorders = production.workorder_ids
+        if workcenter_id:
+            workorders = workorders.filtered(lambda workorder: workorder.workcenter_id.id == workcenter_id)
+        if move.operation_id:
+            operation_workorders = workorders.filtered(lambda workorder: workorder.operation_id == move.operation_id)
+            if operation_workorders:
+                workorders = operation_workorders
+        elif move.bom_line_id and move.bom_line_id.operation_ids:
+            operation_workorders = workorders.filtered(
+                lambda workorder: workorder.operation_id in move.bom_line_id.operation_ids
+            )
+            if operation_workorders:
+                workorders = operation_workorders
+        if not workorders:
+            return False
+        return workorders.sorted(key=lambda workorder: (workorder.sequence, workorder.id))[0].id
+
+    def get_move_piece_state(self, move_id):
+        self.ensure_one()
+        move = self.env["stock.move"].browse(move_id).exists()
+        if not move:
+            return "idle"
+        piece_time = self.env["mrp.workcenter.productivity"].search(
+            [
+                ("workorder_id", "=", self.id),
+                ("move_id", "=", move.id),
+                ("user_id", "=", self.env.user.id),
+            ],
+            order="date_start desc, id desc",
+            limit=1,
+        )
+        if not piece_time:
+            return "idle"
+        if piece_time.piece_state == "working" and not piece_time.date_end:
+            return "working"
+        if piece_time.piece_state == "paused":
+            return "paused"
+        if piece_time.piece_state == "done":
+            return "done"
+        return "idle"
 
     def _get_previous_workorder(self):
         self.ensure_one()
@@ -47,6 +99,30 @@ class MrpWorkorder(models.Model):
             return "weld_group"
         return False
 
+    def _get_move_related_operations(self, move):
+        self.ensure_one()
+        operations = move.related_operation_ids
+        if operations:
+            return operations
+        operations = self.env["mrp.routing.workcenter"]
+        if move.operation_id:
+            operations |= move.operation_id
+        if move.bom_line_id:
+            if move.bom_line_id.operation_ids:
+                operations |= move.bom_line_id.operation_ids
+            elif move.bom_line_id.operation_id:
+                operations |= move.bom_line_id.operation_id
+        return operations
+
+    def _is_move_for_current_operation(self, move):
+        self.ensure_one()
+        if not self.operation_id:
+            return True
+        related_operations = self._get_move_related_operations(move)
+        if not related_operations:
+            return True
+        return self.operation_id in related_operations
+
     def _get_grouped_moves(self, move):
         self.ensure_one()
         grouping_field = self._resolve_grouping_field(move)
@@ -65,6 +141,7 @@ class MrpWorkorder(models.Model):
             )
         moves = self.production_id.move_raw_ids.filtered(
             lambda component: getattr(component, grouping_field) == group_value
+            and self._is_move_for_current_operation(component)
         )
         return moves or move
 
@@ -77,6 +154,12 @@ class MrpWorkorder(models.Model):
 
     def _get_moves_for_action(self, move, grouped=None):
         self.ensure_one()
+        if not self._is_move_for_current_operation(move):
+            raise UserError(
+                _(
+                    "La pieza seleccionada no está relacionada con la operación actual."
+                )
+            )
         if self.workcenter_id.behavior_type == "grouped":
             return self._get_grouped_moves(move)
         return move

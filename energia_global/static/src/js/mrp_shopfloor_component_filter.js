@@ -3,9 +3,10 @@
 import { patch } from "@web/core/utils/patch";
 import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
+import { onWillStart, useState } from "@odoo/owl";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
-import { StockMove } from "@mrp_workorder/mrp_display/stock_move";
+import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {
         const fieldsStructure = super.fieldsStructure;
@@ -15,12 +16,15 @@ patch(MrpDisplayAction.prototype, {
             }
         };
         ensureField("stock.move", "related_workcenter_ids");
+        ensureField("stock.move", "related_operation_ids");
         ensureField("stock.move", "alternative_product_id");
         ensureField("stock.move", "cnc_number");
         ensureField("stock.move", "weld_group");
         ensureField("stock.move", "is_unlocked");
         ensureField("mrp.production", "origin");
         ensureField("mrp.production", "customer_name");
+        ensureField("mrp.production", "workorder_ids");
+        ensureField("mrp.workorder", "workcenter_id");
         ensureField("mrp.workcenter", "behavior_type");
         ensureField("mrp.workcenter", "grouping_field");
         return fieldsStructure;
@@ -55,18 +59,81 @@ patch(StockMove.prototype, {
         super.setup();
         this.orm = useService("orm");
         this.notification = useService("notification");
+        this.uiState = useState({
+            pieceState: "idle",
+        });
+        onWillStart(async () => {
+            await this._refreshPieceState();
+        });
+    },
+
+    get showStartButton() {
+        return this.uiState.pieceState === "idle" || this.uiState.pieceState === "paused";
+    },
+
+    get showPauseStopButtons() {
+        return this.uiState.pieceState === "working";
+    },
+
+    async _refreshPieceState() {
+        const moveId = this.props.record?.resId || this.props.record?.data?.id;
+        if (!moveId) {
+            this.uiState.pieceState = "idle";
+            return;
+        }
+        const workorderId = await this._resolveWorkorderId(moveId);
+        if (!workorderId) {
+            this.uiState.pieceState = "idle";
+            return;
+        }
+        const state = await this.orm.call("mrp.workorder", "get_move_piece_state", [
+            workorderId,
+            moveId,
+        ]);
+        this.uiState.pieceState = state || "idle";
     },
 
     _getWorkorderRecord() {
-        return (
+        const directWorkorder = (
+            this.props?.record?.data?.workorder_id ||
             this.props.workorder ||
             this.props.workorderRecord ||
             this.props.workorder_record ||
             this.props.record?.model?.root?.data?.workorder_id
         );
+        if (directWorkorder) {
+            return directWorkorder;
+        }
+        return this._getWorkorderFromProductionByCurrentWorkcenter();
     },
 
-    _getWorkorderId() {
+    _getCurrentWorkcenterId() {
+        const fromRecord = this.props?.record?.data?.workcenter_id;
+        const fromWorkorder = this.props?.workorder?.data?.workcenter_id;
+        const fromRoot = this.props?.record?.model?.root?.data?.workcenter_id;
+        const workcenter = fromRecord || fromWorkorder || fromRoot;
+        return workcenter?.resId || workcenter?.id || workcenter?.data?.id;
+    },
+
+    _getWorkorderFromProductionByCurrentWorkcenter() {
+        const workcenterId = this._getCurrentWorkcenterId();
+        const workorders = this.props?.production?.data?.workorder_ids?.records || [];
+        if (!workcenterId || !workorders.length) {
+            return null;
+        }
+        return (
+            workorders.find((workorder) => {
+                const currentWorkcenter = workorder?.data?.workcenter_id;
+                const currentWorkcenterId =
+                    currentWorkcenter?.resId ||
+                    currentWorkcenter?.id ||
+                    currentWorkcenter?.data?.id;
+                return currentWorkcenterId === workcenterId;
+            }) || null
+        );
+    },
+
+    _getWorkorderIdFromProps() {
         const workorder = this._getWorkorderRecord();
         if (typeof workorder === "number") {
             return workorder;
@@ -74,16 +141,28 @@ patch(StockMove.prototype, {
         return workorder?.resId || workorder?.id || workorder?.data?.id;
     },
 
-    _getBehaviorType() {
-        const workorder = this._getWorkorderRecord();
-        const workcenter = workorder?.data?.workcenter_id;
-        return workcenter?.data?.behavior_type || "individual";
+    async _resolveWorkorderId(moveId) {
+        const workorderIdFromProps = this._getWorkorderIdFromProps();
+        if (workorderIdFromProps) {
+            return workorderIdFromProps;
+        }
+        const currentWorkcenterId = this._getCurrentWorkcenterId();
+        return await this.orm.call("mrp.workorder", "resolve_workorder_for_move", [
+            moveId,
+            currentWorkcenterId || false,
+        ]);
     },
 
     async _handlePieceAction(action) {
-        const workorderId = this._getWorkorderId();
         const moveId = this.props.record?.resId || this.props.record?.data?.id;
-        if (!workorderId || !moveId) {
+        if (!moveId) {
+            this.notification.add(_t("No se pudo identificar el componente."), {
+                type: "warning",
+            });
+            return;
+        }
+        const workorderId = await this._resolveWorkorderId(moveId);
+        if (!workorderId) {
             this.notification.add(_t("No se pudo identificar la orden de trabajo."), {
                 type: "warning",
             });
@@ -104,19 +183,14 @@ patch(StockMove.prototype, {
             }
         }
 
-        const behaviorType = this._getBehaviorType();
         const method =
             action === "start"
                 ? "action_start_piece_time"
                 : action === "pause"
                 ? "action_pause_piece_time"
                 : "action_stop_piece_time";
-        await this.orm.call(
-            "mrp.workorder",
-            method,
-            [workorderId, moveId],
-            { kwargs: { grouped: behaviorType === "grouped" } }
-        );
+        await this.orm.call("mrp.workorder", method, [workorderId, moveId]);
+        await this._refreshPieceState();
     },
 
     async onStartPiece(ev) {
