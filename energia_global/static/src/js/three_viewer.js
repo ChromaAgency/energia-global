@@ -18,15 +18,14 @@ function isImageFilename(filename) {
 }
 
 async function loadThreeDependencies() {
-    // To bundle Three.js with Odoo assets, place the UMD/ESM builds under
-    // energia_global/static/lib/three/ and add them to web.assets_backend in
-    // __manifest__.py BEFORE this file.
+    // Using CDN for Three.js. If you prefer local assets, place the UMD builds under
+    // energia_global/static/lib/three/ and swap the URLs below to local paths.
     if (window.THREE?.GLTFLoader && window.THREE?.OrbitControls) {
         return window.THREE;
     }
-    await loadJS("/energia_global/static/lib/three/three.min.js");
-    await loadJS("/energia_global/static/lib/three/OrbitControls.js");
-    await loadJS("/energia_global/static/lib/three/GLTFLoader.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.159.0/examples/js/controls/OrbitControls.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.159.0/examples/js/loaders/GLTFLoader.js");
     if (!window.THREE?.GLTFLoader || !window.THREE?.OrbitControls) {
         throw new Error("Three.js no esta disponible en assets.");
     }
