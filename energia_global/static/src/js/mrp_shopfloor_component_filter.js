@@ -9,7 +9,6 @@ import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action"
 import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
 import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { ThreeJSDialog } from "./three_viewer";
-import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
 
 patch(MrpDisplay.prototype, {
     setup(){
