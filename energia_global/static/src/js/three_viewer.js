@@ -3,7 +3,6 @@
 import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
 import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
-
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const MODEL_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx"]);
 
@@ -18,21 +17,6 @@ function isImageFilename(filename) {
     return IMAGE_EXTENSIONS.has(parts.pop().toLowerCase());
 }
 
-async function loadThreeDependencies() {
-    // Use minified UMD build + legacy examples (last versions that ship /examples/js).
-    if (window.THREE?.GLTFLoader && window.THREE?.OrbitControls && window.THREE?.OBJLoader && window.THREE?.FBXLoader) {
-        return window.THREE;
-    }
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js");
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js");
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/GLTFLoader.js");
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/OBJLoader.js");
-    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/FBXLoader.js");
-    if (!window.THREE?.GLTFLoader || !window.THREE?.OrbitControls || !window.THREE?.OBJLoader || !window.THREE?.FBXLoader) {
-        throw new Error("Three.js no esta disponible en assets.");
-    }
-    return window.THREE;
-}
 
 export class ThreeJSViewer extends Component {
     static template = "energia_global.ThreeJSViewer";
@@ -51,7 +35,6 @@ export class ThreeJSViewer extends Component {
             if (!modelUrl) {
                 throw new Error("No se encontro un modelo 3D para cargar.");
             }
-            const THREE = await loadThreeDependencies();
             const container = this.containerRef.el;
             const { width, height } = container.getBoundingClientRect();
             this.scene = new THREE.Scene();
