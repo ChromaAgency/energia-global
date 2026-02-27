@@ -24,6 +24,13 @@
                         </t>
                     </div>
                 </t>
+                <t t-if="props.record.data.has_render_3d">
+                    <div class="mt-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" t-on-click="() => openThreeDViewer(props.record)">
+                            Plano
+                        </button>
+                    </div>
+                </t>
             </div>
         </xpath>
     </t>

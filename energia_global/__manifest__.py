@@ -26,7 +26,9 @@
     'assets': {
         'web.assets_backend': [ 
             'energia_global/static/src/js/mrp_shopfloor_component_filter.js',
+            'energia_global/static/src/js/three_viewer.js',
             'energia_global/static/src/xml/mrp_shopfloor_component_fields.xml',
+            'energia_global/static/src/xml/three_viewer_templates.xml',
         ],
     },
     'installable': True,
@@ -34,4 +36,3 @@
     'application': True,
 
 }
-

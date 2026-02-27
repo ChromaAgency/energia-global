@@ -25,6 +25,19 @@ class StockMove(models.Model):
 		readonly=True,
 		store=True,
 	)
+	render_3d_file = fields.Binary(
+		related="bom_line_id.render_3d_file",
+		readonly=True,
+	)
+	render_3d_filename = fields.Char(
+		related="bom_line_id.render_3d_filename",
+		readonly=True,
+	)
+	has_render_3d = fields.Boolean(
+		compute="_compute_has_render_3d",
+		store=True,
+		readonly=True,
+	)
 
 	@api.depends("bom_line_id", "bom_line_id.alternative_product_ids")
 	def _compute_alternative_products(self):
@@ -52,6 +65,11 @@ class StockMove(models.Model):
 				elif move.bom_line_id.operation_id and move.bom_line_id.operation_id.workcenter_id:
 					workcenters |= move.bom_line_id.operation_id.workcenter_id
 			move.related_workcenter_ids = workcenters
+
+	@api.depends("bom_line_id.render_3d_file")
+	def _compute_has_render_3d(self):
+		for move in self:
+			move.has_render_3d = bool(move.bom_line_id.render_3d_file)
 
 	@api.onchange("alternative_product_id")
 	def _onchange_alternative_product_id(self):
