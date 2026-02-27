@@ -5,6 +5,7 @@ import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const MODEL_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx"]);
 
 function isImageFilename(filename) {
     if (!filename) {
@@ -19,11 +20,15 @@ function isImageFilename(filename) {
 
 async function loadThreeDependencies() {
     // Use minified UMD build + legacy examples (last versions that ship /examples/js).
-    if (window.THREE?.GLTFLoader && window.THREE?.OrbitControls) {
+    if (window.THREE?.GLTFLoader && window.THREE?.OrbitControls && window.THREE?.OBJLoader && window.THREE?.FBXLoader) {
         return window.THREE;
     }
-    await loadJS("/static/lib/three/three.module.min.js");
-    if (!window.THREE?.GLTFLoader || !window.THREE?.OrbitControls) {
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/GLTFLoader.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/OBJLoader.js");
+    await loadJS("https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/loaders/FBXLoader.js");
+    if (!window.THREE?.GLTFLoader || !window.THREE?.OrbitControls || !window.THREE?.OBJLoader || !window.THREE?.FBXLoader) {
         throw new Error("Three.js no esta disponible en assets.");
     }
     return window.THREE;
@@ -65,18 +70,8 @@ export class ThreeJSViewer extends Component {
             this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
             this.controls.enableDamping = true;
 
-            const loader = new THREE.GLTFLoader();
-            await new Promise((resolve, reject) => {
-                loader.load(
-                    modelUrl,
-                    (gltf) => {
-                        this.scene.add(gltf.scene);
-                        resolve();
-                    },
-                    undefined,
-                    (error) => reject(error || new Error("No se pudo cargar el modelo 3D."))
-                );
-            });
+            const extension = this._getModelExtension();
+            await this._loadModel(THREE, modelUrl, extension);
             this.state.loading = false;
             this._startRenderLoop();
         } catch (error) {
@@ -104,14 +99,87 @@ export class ThreeJSViewer extends Component {
         if (this.props.base64Data.startsWith("data:")) {
             return this.props.base64Data;
         }
+        const extension = this._getModelExtension();
+        if (!MODEL_EXTENSIONS.has(extension)) {
+            return null;
+        }
         const byteString = atob(this.props.base64Data);
         const arrayBuffer = new Uint8Array(byteString.length);
         for (let i = 0; i < byteString.length; i++) {
             arrayBuffer[i] = byteString.charCodeAt(i);
         }
-        const blob = new Blob([arrayBuffer], { type: "model/gltf-binary" });
+        const blob = new Blob([arrayBuffer], { type: this._getMimeType(extension) });
         this._objectUrl = URL.createObjectURL(blob);
         return this._objectUrl;
+    }
+
+    _getModelExtension() {
+        if (!this.props.filename) {
+            return "glb";
+        }
+        const parts = this.props.filename.split(".");
+        if (parts.length < 2) {
+            return "glb";
+        }
+        return parts.pop().toLowerCase();
+    }
+
+    _getMimeType(extension) {
+        switch (extension) {
+            case "gltf":
+                return "model/gltf+json";
+            case "obj":
+                return "text/plain";
+            case "fbx":
+                return "application/octet-stream";
+            default:
+                return "model/gltf-binary";
+        }
+    }
+
+    async _loadModel(THREE, modelUrl, extension) {
+        if (!MODEL_EXTENSIONS.has(extension)) {
+            throw new Error("Formato 3D no soportado.");
+        }
+        const addToScene = (object) => {
+            this.scene.add(object);
+            this._fitToView(THREE, object);
+        };
+        const loadWith = (loader, onSuccess) =>
+            new Promise((resolve, reject) => {
+                loader.load(
+                    modelUrl,
+                    (data) => {
+                        onSuccess(data);
+                        resolve();
+                    },
+                    undefined,
+                    (error) => reject(error || new Error("No se pudo cargar el modelo 3D."))
+                );
+            });
+        if (extension === "obj") {
+            const loader = new THREE.OBJLoader();
+            await loadWith(loader, (object) => addToScene(object));
+            return;
+        }
+        if (extension === "fbx") {
+            const loader = new THREE.FBXLoader();
+            await loadWith(loader, (object) => addToScene(object));
+            return;
+        }
+        const loader = new THREE.GLTFLoader();
+        await loadWith(loader, (gltf) => addToScene(gltf.scene));
+    }
+
+    _fitToView(THREE, object) {
+        const box = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const distance = maxDim * 1.8;
+        this.camera.position.set(center.x + distance, center.y + distance, center.z + distance);
+        this.controls.target.copy(center);
+        this.controls.update();
     }
 
     _cleanup() {
