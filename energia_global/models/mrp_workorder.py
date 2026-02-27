@@ -27,11 +27,11 @@ class MrpWorkorder(models.Model):
         if previous_workorder.state in ("done", "cancel"):
             return True
         return bool(
-            self.env["mrp.workorder.product.time"].search_count(
+            self.env["mrp.workcenter.productivity"].search_count(
                 [
                     ("workorder_id", "=", previous_workorder.id),
                     ("move_id", "=", move.id),
-                    ("state", "=", "done"),
+                    ("piece_state", "=", "done"),
                 ]
             )
         )
@@ -81,16 +81,31 @@ class MrpWorkorder(models.Model):
             return self._get_grouped_moves(move)
         return move
 
+    def _get_default_loss_id(self):
+        loss = self.env.ref("mrp.block_reason7", raise_if_not_found=False)
+        if loss:
+            return loss.id
+        loss = self.env["mrp.workcenter.productivity.loss"].search(
+            [("loss_type", "=", "productive")],
+            limit=1,
+        )
+        if not loss:
+            raise UserError(
+                _("Debe configurar una pérdida productiva para registrar tiempos.")
+            )
+        return loss.id
+
     def _start_moves_time(self, moves):
         self.ensure_one()
-        time_model = self.env["mrp.workorder.product.time"]
+        time_model = self.env["mrp.workcenter.productivity"]
         now = fields.Datetime.now()
+        loss_id = self._get_default_loss_id()
         running = time_model.search(
             [
                 ("workorder_id", "=", self.id),
                 ("move_id", "in", moves.ids),
                 ("user_id", "=", self.env.user.id),
-                ("state", "=", "working"),
+                ("piece_state", "=", "working"),
                 ("date_end", "=", False),
             ]
         )
@@ -98,10 +113,13 @@ class MrpWorkorder(models.Model):
         to_create = [
             {
                 "workorder_id": self.id,
+                "workcenter_id": self.workcenter_id.id,
+                "company_id": self.company_id.id,
                 "move_id": move.id,
                 "user_id": self.env.user.id,
                 "date_start": now,
-                "state": "working",
+                "piece_state": "working",
+                "loss_id": loss_id,
             }
             for move in moves
             if move.id not in running_move_ids
@@ -109,29 +127,29 @@ class MrpWorkorder(models.Model):
         if to_create:
             time_model.create(to_create)
 
-    def _close_moves_time(self, moves, state):
+    def _close_moves_time(self, moves, piece_state):
         self.ensure_one()
-        time_model = self.env["mrp.workorder.product.time"]
+        time_model = self.env["mrp.workcenter.productivity"]
         now = fields.Datetime.now()
         running = time_model.search(
             [
                 ("workorder_id", "=", self.id),
                 ("move_id", "in", moves.ids),
                 ("user_id", "=", self.env.user.id),
-                ("state", "=", "working"),
+                ("piece_state", "=", "working"),
                 ("date_end", "=", False),
             ]
         )
         if running:
-            running.write({"date_end": now, "state": state})
+            running.write({"date_end": now, "piece_state": piece_state})
         remaining_moves = moves - running.mapped("move_id")
-        if state == "done" and remaining_moves:
+        if piece_state == "done" and remaining_moves:
             last_times = time_model.search(
                 [
                     ("workorder_id", "=", self.id),
                     ("move_id", "in", remaining_moves.ids),
                     ("user_id", "=", self.env.user.id),
-                    ("state", "!=", "done"),
+                    ("piece_state", "!=", "done"),
                 ],
                 order="date_start desc",
             )
@@ -139,7 +157,7 @@ class MrpWorkorder(models.Model):
                 last_time = last_times.filtered(lambda record: record.move_id == move)[:1]
                 if not last_time:
                     continue
-                vals = {"state": "done"}
+                vals = {"piece_state": "done"}
                 if not last_time.date_end:
                     vals["date_end"] = now
                 last_time.write(vals)
