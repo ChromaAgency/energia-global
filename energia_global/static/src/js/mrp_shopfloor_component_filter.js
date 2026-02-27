@@ -65,7 +65,7 @@ patch(StockMove.prototype, {
     },
 
     openThreeDViewer(e) {
-
+        e.stopPropagation();
         const record = this.props.record;
         if (!record?.data?.has_render_3d) {
             this.notification.add("No hay plano 3D disponible.", { type: "warning" });
