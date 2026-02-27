@@ -3,7 +3,7 @@
 import { patch } from "@web/core/utils/patch";
 import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
-import { onWillStart, useState } from "@odoo/owl";
+import { onWillStart, onWillUnmount, useState } from "@odoo/owl";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
 import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
@@ -34,6 +34,8 @@ patch(MrpDisplayAction.prototype, {
 patch(MrpDisplayRecord.prototype, {
     _filterMovesByWorkcenter(moves) {
         const workcenterId = this.props.record.data.workcenter_id?.id;
+        const contextWorkorderId =
+            this.props.record?.resModel === "mrp.workorder" ? this.props.record?.resId : false;
         return moves.filter((move) => {
             const relatedWorkcenters = move.data.related_workcenter_ids?.resIds || [];
             if (!relatedWorkcenters.length) {
@@ -42,7 +44,13 @@ patch(MrpDisplayRecord.prototype, {
             if (!workcenterId) {
                 return true;
             }
-            return relatedWorkcenters.includes(workcenterId);
+            const isRelatedToCurrentWorkcenter = relatedWorkcenters.includes(workcenterId);
+            if (!isRelatedToCurrentWorkcenter) {
+                return false;
+            }
+            move.data._context_workcenter_id = workcenterId;
+            move.data._context_workorder_id = contextWorkorderId;
+            return true;
         });
     },
 
@@ -61,6 +69,8 @@ patch(StockMove.prototype, {
         this.notification = useService("notification");
         this.uiState = useState({
             pieceState: "idle",
+            isUnlocked: false,
+            blockedByText: false,
         });
         onWillStart(async () => {
             await this._refreshPieceState();
@@ -68,32 +78,61 @@ patch(StockMove.prototype, {
     },
 
     get showStartButton() {
-        return this.uiState.pieceState === "idle" || this.uiState.pieceState === "paused";
+        return (
+            (this.uiState.pieceState === "idle" || this.uiState.pieceState === "paused") &&
+            this.uiState.isUnlocked
+        );
     },
 
     get showPauseStopButtons() {
         return this.uiState.pieceState === "working";
     },
 
+    get showBlockedInfo() {
+        return !this.uiState.isUnlocked && this.uiState.pieceState !== "working" && this.uiState.blockedByText;
+    },
+
     async _refreshPieceState() {
+        if (this._refreshingState) {
+            return;
+        }
+        this._refreshingState = true;
         const moveId = this.props.record?.resId || this.props.record?.data?.id;
-        if (!moveId) {
-            this.uiState.pieceState = "idle";
-            return;
+        try {
+            if (!moveId) {
+                this.uiState.pieceState = "idle";
+                this.uiState.isUnlocked = false;
+                this.uiState.blockedByText = false;
+                return;
+            }
+            const workorderId = await this._resolveWorkorderId(moveId);
+            if (!workorderId) {
+                this.uiState.pieceState = "idle";
+                this.uiState.isUnlocked = false;
+                this.uiState.blockedByText = false;
+                return;
+            }
+            const status = await this.orm.call("mrp.workorder", "get_move_timer_status", [
+                workorderId,
+                moveId,
+            ]);
+            this.uiState.pieceState = status?.piece_state || "idle";
+            this.uiState.isUnlocked = Boolean(status?.is_unlocked);
+            this.uiState.blockedByText = status?.blocked_by_text || false;
+        } finally {
+            this._refreshingState = false;
         }
-        const workorderId = await this._resolveWorkorderId(moveId);
-        if (!workorderId) {
-            this.uiState.pieceState = "idle";
-            return;
-        }
-        const state = await this.orm.call("mrp.workorder", "get_move_piece_state", [
-            workorderId,
-            moveId,
-        ]);
-        this.uiState.pieceState = state || "idle";
     },
 
     _getWorkorderRecord() {
+        const contextWorkorderId = this.props?.record?.data?._context_workorder_id;
+        if (contextWorkorderId) {
+            return contextWorkorderId;
+        }
+        const rootRecord = this.props?.record?.model?.root;
+        if (rootRecord?.resModel === "mrp.workorder") {
+            return rootRecord;
+        }
         const directWorkorder = (
             this.props?.record?.data?.workorder_id ||
             this.props.workorder ||
@@ -108,6 +147,19 @@ patch(StockMove.prototype, {
     },
 
     _getCurrentWorkcenterId() {
+        const contextWorkcenterId = this.props?.record?.data?._context_workcenter_id;
+        if (contextWorkcenterId) {
+            return contextWorkcenterId;
+        }
+        const rootRecord = this.props?.record?.model?.root;
+        if (rootRecord?.resModel === "mrp.workorder") {
+            const rootWorkcenter = rootRecord?.data?.workcenter_id;
+            const rootWorkcenterId =
+                rootWorkcenter?.resId || rootWorkcenter?.id || rootWorkcenter?.data?.id;
+            if (rootWorkcenterId) {
+                return rootWorkcenterId;
+            }
+        }
         const fromRecord = this.props?.record?.data?.workcenter_id;
         const fromWorkorder = this.props?.workorder?.data?.workcenter_id;
         const fromRoot = this.props?.record?.model?.root?.data?.workcenter_id;
@@ -137,6 +189,9 @@ patch(StockMove.prototype, {
         const workorder = this._getWorkorderRecord();
         if (typeof workorder === "number") {
             return workorder;
+        }
+        if (workorder?.resModel === "mrp.workorder" && workorder?.resId) {
+            return workorder.resId;
         }
         return workorder?.resId || workorder?.id || workorder?.data?.id;
     },
@@ -176,9 +231,10 @@ patch(StockMove.prototype, {
             ]);
             if (!unlocked) {
                 this.notification.add(
-                    _t("La pieza está bloqueada hasta finalizar la operación anterior."),
+                    _t("La pieza está bloqueada hasta completar todas las operaciones que la bloquean."),
                     { type: "warning" }
                 );
+                await this._refreshPieceState();
                 return;
             }
         }

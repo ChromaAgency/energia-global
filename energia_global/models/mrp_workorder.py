@@ -73,20 +73,55 @@ class MrpWorkorder(models.Model):
 
     def _is_move_unlocked(self, move):
         self.ensure_one()
-        previous_workorder = self._get_previous_workorder()
-        if not previous_workorder:
-            return True
-        if previous_workorder.state in ("done", "cancel"):
-            return True
-        return bool(
-            self.env["mrp.workcenter.productivity"].search_count(
-                [
-                    ("workorder_id", "=", previous_workorder.id),
-                    ("move_id", "=", move.id),
-                    ("piece_state", "=", "done"),
-                ]
+        pending_blocking_workorders = self._get_pending_blocking_workorders_for_move(move)
+        return not pending_blocking_workorders
+
+    def _get_pending_blocking_workorders_for_move(self, move):
+        self.ensure_one()
+        blocking_workorders = self._get_blocking_workorders_for_move(move)
+        if not blocking_workorders:
+            return self.env["mrp.workorder"]
+        productivity_model = self.env["mrp.workcenter.productivity"]
+        pending_blocking_workorders = self.env["mrp.workorder"]
+        for blocking_workorder in blocking_workorders:
+            if blocking_workorder.state == "cancel":
+                continue
+            is_done_in_blocking_operation = bool(
+                productivity_model.search_count(
+                    [
+                        ("workorder_id", "=", blocking_workorder.id),
+                        ("move_id", "=", move.id),
+                        ("piece_state", "=", "done"),
+                    ]
+                )
             )
+            if not is_done_in_blocking_operation:
+                pending_blocking_workorders |= blocking_workorder
+        return pending_blocking_workorders
+
+    def _get_blocking_workorders_for_move(self, move):
+        self.ensure_one()
+        blocking_workorders = self.blocked_by_workorder_ids.filtered(
+            lambda blocking_workorder: self._is_move_related_to_workorder(move, blocking_workorder)
         )
+        if blocking_workorders:
+            return blocking_workorders
+
+        related_operations = self._get_move_related_operations(move)
+        if related_operations and self.production_id:
+            return self.production_id.workorder_ids.filtered(
+                lambda workorder: workorder.id != self.id
+                and workorder.operation_id in related_operations
+                and (
+                    workorder.sequence < self.sequence
+                    or (workorder.sequence == self.sequence and workorder.id < self.id)
+                )
+            )
+
+        previous_workorder = self._get_previous_workorder()
+        if previous_workorder:
+            return previous_workorder
+        return self.env["mrp.workorder"]
 
     def _resolve_grouping_field(self, move):
         self.ensure_one()
@@ -123,6 +158,14 @@ class MrpWorkorder(models.Model):
             return True
         return self.operation_id in related_operations
 
+    def _is_move_related_to_workorder(self, move, workorder):
+        if not workorder.operation_id:
+            return True
+        related_operations = self._get_move_related_operations(move)
+        if not related_operations:
+            return False
+        return workorder.operation_id in related_operations
+
     def _get_grouped_moves(self, move):
         self.ensure_one()
         grouping_field = self._resolve_grouping_field(move)
@@ -152,6 +195,28 @@ class MrpWorkorder(models.Model):
             return False
         return self._is_move_unlocked(move)
 
+    def get_move_timer_status(self, move_id):
+        self.ensure_one()
+        move = self.env["stock.move"].browse(move_id).exists()
+        if not move:
+            return {
+                "piece_state": "idle",
+                "is_unlocked": False,
+                "blocked_by": [],
+                "blocked_by_text": _("Bloqueado"),
+            }
+        pending_blocking_workorders = self._get_pending_blocking_workorders_for_move(move)
+        return {
+            "piece_state": self.get_move_piece_state(move_id),
+            "is_unlocked": not pending_blocking_workorders,
+            "blocked_by": pending_blocking_workorders.mapped("display_name"),
+            "blocked_by_text": pending_blocking_workorders and _(
+                "Bloqueado por: %s"
+            )
+            % ", ".join(pending_blocking_workorders.mapped("display_name"))
+            or False,
+        }
+
     def _get_moves_for_action(self, move, grouped=None):
         self.ensure_one()
         if not self._is_move_for_current_operation(move):
@@ -177,6 +242,35 @@ class MrpWorkorder(models.Model):
                 _("Debe configurar una pérdida productiva para registrar tiempos.")
             )
         return loss.id
+
+    def _lock_moves_for_timer(self, moves):
+        self.ensure_one()
+        if not moves:
+            return
+        self.env.cr.execute(
+            "SELECT id FROM stock_move WHERE id IN %s FOR UPDATE",
+            [tuple(moves.ids)],
+        )
+
+    def _ensure_no_active_timer_in_other_workorders(self, moves):
+        self.ensure_one()
+        active_times = self.env["mrp.workcenter.productivity"].search(
+            [
+                ("move_id", "in", moves.ids),
+                ("workorder_id", "!=", self.id),
+                ("piece_state", "=", "working"),
+                ("date_end", "=", False),
+            ],
+            limit=1,
+        )
+        if active_times:
+            blocking_workorder = active_times.workorder_id
+            raise UserError(
+                _(
+                    "No puede iniciar esta pieza porque ya está en curso en %s. Finalice o pause allí antes de continuar."
+                )
+                % blocking_workorder.display_name
+            )
 
     def _start_moves_time(self, moves):
         self.ensure_one()
@@ -251,6 +345,8 @@ class MrpWorkorder(models.Model):
         if not move:
             raise UserError(_("La pieza seleccionada no existe."))
         moves = self._get_moves_for_action(move, grouped)
+        self._lock_moves_for_timer(moves)
+        self._ensure_no_active_timer_in_other_workorders(moves)
         locked_moves = moves.filtered(lambda component: not self._is_move_unlocked(component))
         if locked_moves:
             raise UserError(
