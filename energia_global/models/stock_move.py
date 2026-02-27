@@ -25,6 +25,12 @@ class StockMove(models.Model):
 		readonly=True,
 		store=True,
 	)
+	cnc_number = fields.Char(string="CNC Number")
+	weld_group = fields.Char(string="Weld Group")
+	is_unlocked = fields.Boolean(
+		string="Unlocked",
+		compute="_compute_is_unlocked",
+	)
 
 	@api.depends("bom_line_id", "bom_line_id.alternative_product_ids")
 	def _compute_alternative_products(self):
@@ -58,3 +64,13 @@ class StockMove(models.Model):
 		for move in self:
 			if move.alternative_product_id:
 				move.product_id = move.alternative_product_id
+
+	@api.depends_context("workorder_id")
+	def _compute_is_unlocked(self):
+		workorder_id = self.env.context.get("workorder_id")
+		workorder = self.env["mrp.workorder"].browse(workorder_id) if workorder_id else False
+		for move in self:
+			if not workorder:
+				move.is_unlocked = True
+				continue
+			move.is_unlocked = workorder._is_move_unlocked(move)

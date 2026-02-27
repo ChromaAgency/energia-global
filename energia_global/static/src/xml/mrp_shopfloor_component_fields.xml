@@ -24,6 +24,17 @@
                         </t>
                     </div>
                 </t>
+                <div class="btn-group mt-1">
+                    <button type="button" class="btn btn-primary btn-sm" t-on-click="onStartPiece">
+                        Iniciar
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" t-on-click="onPausePiece">
+                        Pausar
+                    </button>
+                    <button type="button" class="btn btn-danger btn-sm" t-on-click="onStopPiece">
+                        Detener
+                    </button>
+                </div>
             </div>
         </xpath>
     </t>
