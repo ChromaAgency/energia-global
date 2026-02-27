@@ -4,6 +4,19 @@ import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl
 import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
 
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+
+function isImageFilename(filename) {
+    if (!filename) {
+        return false;
+    }
+    const parts = filename.split(".");
+    if (parts.length < 2) {
+        return false;
+    }
+    return IMAGE_EXTENSIONS.has(parts.pop().toLowerCase());
+}
+
 async function loadThreeDependencies() {
     // To bundle Three.js with Odoo assets, place the UMD/ESM builds under
     // energia_global/static/lib/three/ and add them to web.assets_backend in
@@ -137,4 +150,69 @@ export class ThreeJSViewer extends Component {
 export class ThreeJSDialog extends Component {
     static template = "energia_global.ThreeJSDialog";
     static components = { Dialog, ThreeJSViewer };
+
+    setup() {
+        this.state = useState({
+            view: this._getDefaultView(),
+            imageError: null,
+        });
+    }
+
+    get has3d() {
+        if (this.props.modelUrl && this.props.imageUrl) {
+            return true;
+        }
+        if (this._isBase64Image()) {
+            return false;
+        }
+        if (this.props.base64Data) {
+            return true;
+        }
+        if (this.props.modelUrl && !isImageFilename(this.props.filename)) {
+            return true;
+        }
+        return false;
+    }
+
+    get hasImage() {
+        return Boolean(this.imageUrl);
+    }
+
+    get imageUrl() {
+        if (this.props.imageUrl) {
+            return this.props.imageUrl;
+        }
+        if (this._isBase64Image()) {
+            return this.props.base64Data;
+        }
+        if (isImageFilename(this.props.filename)) {
+            return this.props.modelUrl || null;
+        }
+        return null;
+    }
+
+    setView(view) {
+        if ((view === "3d" && this.has3d) || (view === "image" && this.hasImage)) {
+            this.state.view = view;
+            this.state.imageError = null;
+        }
+    }
+
+    onImageError() {
+        this.state.imageError = "No se pudo cargar la imagen del plano.";
+    }
+
+    _isBase64Image() {
+        return Boolean(this.props.base64Data && this.props.base64Data.startsWith("data:image/"));
+    }
+
+    _getDefaultView() {
+        if (this.has3d) {
+            return "3d";
+        }
+        if (this.hasImage) {
+            return "image";
+        }
+        return "3d";
+    }
 }

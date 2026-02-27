@@ -14,12 +14,32 @@
 
     <t t-name="energia_global.ThreeJSDialog" owl="1">
         <Dialog title="props.title || 'Plano'" size="'lg'">
-            <t t-if="props.modelUrl || props.base64Data">
-                <ThreeJSViewer modelUrl="props.modelUrl" base64Data="props.base64Data"/>
+            <div class="d-flex gap-2 mb-2">
+                <button type="button" class="btn btn-outline-primary" t-att-class="state.view === '3d' ? 'active' : ''" t-att-disabled="!has3d" t-on-click="() => setView('3d')">
+                    3D
+                </button>
+                <button type="button" class="btn btn-outline-primary" t-att-class="state.view === 'image' ? 'active' : ''" t-att-disabled="!hasImage" t-on-click="() => setView('image')">
+                    Plano
+                </button>
+            </div>
+            <t t-if="state.view === '3d'">
+                <t t-if="has3d">
+                    <ThreeJSViewer modelUrl="props.modelUrl" base64Data="props.base64Data"/>
+                </t>
+                <t t-else="">
+                    <div class="alert alert-danger m-0" role="alert">
+                        Modelo 3D no disponible.
+                    </div>
+                </t>
             </t>
-            <t t-else="">
-                <div class="alert alert-danger m-0" role="alert">
-                    Modelo 3D no disponible.
+            <t t-if="state.view === 'image'">
+                <div class="border d-flex align-items-center justify-content-center" style="min-height: 420px;">
+                    <t t-if="state.imageError">
+                        <div class="alert alert-danger m-0" role="alert" t-out="state.imageError"/>
+                    </t>
+                    <t t-else="">
+                        <img class="img-fluid" t-att-src="imageUrl" t-on-error="onImageError"/>
+                    </t>
                 </div>
             </t>
         </Dialog>
