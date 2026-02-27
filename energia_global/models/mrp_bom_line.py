@@ -24,6 +24,12 @@ class MrpBomLine(models.Model):
 		string="Alternative Components",
 		help="Components that can replace this BOM line.",
 	)
+	render_3d_file = fields.Binary(
+		string="3D Render",
+		attachment=True,
+		help="3D model file (GLB/GLTF) for Shop Floor visualization.",
+	)
+	render_3d_filename = fields.Char(string="3D Render Filename")
 
 	@api.onchange("operation_id")
 	def _onchange_operation_id_sync(self):

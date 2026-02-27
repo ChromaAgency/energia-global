@@ -24,6 +24,27 @@
                         </t>
                     </div>
                 </t>
+                <t t-if="props.record.data.has_render_3d || props.record.data.render_3d_filename">
+                    <div class="mt-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" t-on-click="openThreeDViewer">
+                            Plano
+                        </button>
+                    </div>
+                </t>
+                <t t-if="showBlockedInfo">
+                    <div class="text-danger small" t-out="uiState.blockedByText"/>
+                </t>
+                <div class="btn-group mt-1">
+                    <button type="button" class="btn btn-primary btn-sm" t-if="showStartButton" t-on-click="onStartPiece">
+                        Iniciar
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" t-if="showPauseStopButtons" t-on-click="onPausePiece">
+                        Pausar
+                    </button>
+                    <button type="button" class="btn btn-danger btn-sm" t-if="showPauseStopButtons" t-on-click="onStopPiece">
+                        Detener
+                    </button>
+                </div>
             </div>
         </xpath>
     </t>
