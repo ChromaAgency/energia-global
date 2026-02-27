@@ -7,6 +7,9 @@ import { useService } from "@web/core/utils/hooks";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
 import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
+
+const PIECE_STATE_REFRESH_EVENT = "energia_global:piece_state_refresh";
+
 import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { ThreeJSDialog } from "./three_viewer";
 
@@ -131,6 +134,17 @@ patch(StockMove.prototype, {
         });
         onWillStart(async () => {
             await this._refreshPieceState();
+        });
+        this._onPieceStateRefresh = () => {
+            this._refreshPieceState();
+        };
+        if (typeof window !== "undefined") {
+            window.addEventListener(PIECE_STATE_REFRESH_EVENT, this._onPieceStateRefresh);
+        }
+        onWillUnmount(() => {
+            if (typeof window !== "undefined") {
+                window.removeEventListener(PIECE_STATE_REFRESH_EVENT, this._onPieceStateRefresh);
+            }
         });
     },
 
@@ -304,6 +318,9 @@ patch(StockMove.prototype, {
                 : "action_stop_piece_time";
         await this.orm.call("mrp.workorder", method, [workorderId, moveId]);
         await this._refreshPieceState();
+        if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent(PIECE_STATE_REFRESH_EVENT));
+        }
     },
 
     async onStartPiece(ev) {
