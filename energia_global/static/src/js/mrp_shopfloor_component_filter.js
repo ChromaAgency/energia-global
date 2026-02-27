@@ -1,7 +1,6 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
 import { onWillStart, onWillUnmount, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
