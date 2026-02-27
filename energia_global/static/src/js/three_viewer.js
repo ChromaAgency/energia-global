@@ -1,7 +1,6 @@
 /** @odoo-module */
 
 import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
-import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const MODEL_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx"]);
@@ -35,6 +34,10 @@ export class ThreeJSViewer extends Component {
             if (!modelUrl) {
                 throw new Error("No se encontro un modelo 3D para cargar.");
             }
+            const THREE = window.THREE;
+            if (!THREE) {
+                throw new Error("Three.js no esta disponible en assets.");
+            }
             const container = this.containerRef.el;
             const { width, height } = container.getBoundingClientRect();
             this.scene = new THREE.Scene();
@@ -50,6 +53,9 @@ export class ThreeJSViewer extends Component {
             dirLight.position.set(5, 5, 5);
             this.scene.add(ambientLight, dirLight);
 
+            if (!THREE.OrbitControls) {
+                throw new Error("OrbitControls no esta disponible en assets.");
+            }
             this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
             this.controls.enableDamping = true;
 
@@ -141,14 +147,23 @@ export class ThreeJSViewer extends Component {
                 );
             });
         if (extension === "obj") {
+            if (!THREE.OBJLoader) {
+                throw new Error("OBJLoader no esta disponible en assets.");
+            }
             const loader = new THREE.OBJLoader();
             await loadWith(loader, (object) => addToScene(object));
             return;
         }
         if (extension === "fbx") {
+            if (!THREE.FBXLoader) {
+                throw new Error("FBXLoader no esta disponible en assets.");
+            }
             const loader = new THREE.FBXLoader();
             await loadWith(loader, (object) => addToScene(object));
             return;
+        }
+        if (!THREE.GLTFLoader) {
+            throw new Error("GLTFLoader no esta disponible en assets.");
         }
         const loader = new THREE.GLTFLoader();
         await loadWith(loader, (gltf) => addToScene(gltf.scene));
