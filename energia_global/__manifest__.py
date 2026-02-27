@@ -22,6 +22,7 @@
     # always loaded
     'data': [
         'views/mrp_workorder_component_filter_views.xml',
+        'views/mrp_workcenter_behavior_views.xml',
     ],
     'assets': {
         'web.assets_backend': [ 

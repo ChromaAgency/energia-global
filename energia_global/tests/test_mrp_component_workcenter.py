@@ -97,6 +97,24 @@ class TestMrpComponentWorkcenter(TransactionCase):
         self.assertIn(self.workcenter_a, move.related_workcenter_ids)
         self.assertIn(self.workcenter_b, move.related_workcenter_ids)
 
+    def test_related_operations_from_bom_line_operations(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_ids": [(6, 0, [self.operation_a.id, self.operation_b.id])],
+        })
+        move = self._create_move(bom_line_id=bom_line.id)
+        move._compute_related_operation_ids()
+        self.assertIn(self.operation_a, move.related_operation_ids)
+        self.assertIn(self.operation_b, move.related_operation_ids)
+
+    def test_related_operations_from_move_operation(self):
+        move = self._create_move(operation_id=self.operation_a.id)
+        move._compute_related_operation_ids()
+        self.assertIn(self.operation_a, move.related_operation_ids)
+
     def test_alternative_components_on_move(self):
         bom_line = self.env["mrp.bom.line"].create({
             "bom_id": self.bom.id,
