@@ -6,6 +6,7 @@ import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record"
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
 import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { ThreeJSDialog } from "./three_viewer";
+import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
 
 patch(MrpDisplay.prototype, {
     setup(){
@@ -56,14 +57,15 @@ patch(MrpDisplayAction.prototype, {
     },
 });
 
-patch(MrpDisplayRecord.prototype, {
+patch(StockMove.prototype, {
     setup() {
         super.setup();
         this.dialog = useService("dialog");
         this.notification = useService("notification");
     },
 
-    openThreeDViewer(record) {
+    openThreeDViewer() {
+        const record = this.props.record;
         if (!record?.data?.has_render_3d) {
             this.notification.add("No hay plano 3D disponible.", { type: "warning" });
             return;
@@ -75,6 +77,37 @@ patch(MrpDisplayRecord.prototype, {
             return;
         }
         const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
+        this.dialog.add(ThreeJSDialog, {
+            title: "Plano",
+            modelUrl,
+            filename: record.data.render_3d_filename,
+        });
+    },
+});
+patch(MrpDisplayRecord.prototype, {
+    setup() {
+        super.setup();
+        this.dialog = useService("dialog");
+        this.notification = useService("notification");
+    },
+
+    openThreeDViewer(record) {
+        console.log("Opening 3D viewer with record:", record);
+
+        if (!record?.data?.has_render_3d) {
+            console.log("No 3D model available for record:", record);
+
+            this.notification.add("No hay plano 3D disponible.", { type: "warning" });
+            return;
+        }
+        const resId = record.resId || record.data.id;
+        const resModel = record.resModel || "stock.move";
+        if (!resId) {
+            this.notification.add("No se pudo identificar el componente.", { type: "danger" });
+            return;
+        }
+        const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
+        console.log("Opening 3D viewer with URL:", modelUrl);
         this.dialog.add(ThreeJSDialog, {
             title: "Plano",
             modelUrl,

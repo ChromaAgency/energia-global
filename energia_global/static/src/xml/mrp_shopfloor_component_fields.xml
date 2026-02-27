@@ -26,7 +26,7 @@
                 </t>
                 <t t-if="props.record.data.has_render_3d || props.record.data.render_3d_filename">
                     <div class="mt-1">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" t-on-click="() => openThreeDViewer(props.record)">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" t-on-click="openThreeDViewer">
                             Plano
                         </button>
                     </div>
