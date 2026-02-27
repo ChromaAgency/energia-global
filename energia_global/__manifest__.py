@@ -30,6 +30,7 @@
             'energia_global/static/src/xml/mrp_shopfloor_component_fields.xml',
             'energia_global/static/src/xml/three_viewer_templates.xml',
              'energia_global/static/lib/three/three.min.js',
+             'energia_global/static/lib/three/GTLFLoader.js',
         ],
     },
     'installable': True,

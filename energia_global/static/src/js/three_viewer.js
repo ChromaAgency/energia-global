@@ -35,6 +35,8 @@ export class ThreeJSViewer extends Component {
                 throw new Error("No se encontro un modelo 3D para cargar.");
             }
             const THREE = window.THREE;
+            console.log({window})
+            console.log({THREE})
             if (!THREE) {
                 throw new Error("Three.js no esta disponible en assets.");
             }
@@ -53,11 +55,11 @@ export class ThreeJSViewer extends Component {
             dirLight.position.set(5, 5, 5);
             this.scene.add(ambientLight, dirLight);
 
-            if (!THREE.OrbitControls) {
-                throw new Error("OrbitControls no esta disponible en assets.");
-            }
-            this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-            this.controls.enableDamping = true;
+            // if (!THREE.OrbitControls) {
+            //     throw new Error("OrbitControls no esta disponible en assets.");
+            // }
+            // this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+            // this.controls.enableDamping = true;
 
             const extension = this._getModelExtension();
             await this._loadModel(THREE, modelUrl, extension);
@@ -71,7 +73,7 @@ export class ThreeJSViewer extends Component {
 
     _startRenderLoop() {
         const animate = () => {
-            this.controls?.update();
+            // this.controls?.update();
             this.renderer?.render(this.scene, this.camera);
             this._animationId = requestAnimationFrame(animate);
         };
