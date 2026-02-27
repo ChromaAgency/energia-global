@@ -1,9 +1,11 @@
 /** @odoo-module */
 
 import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
+import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const MODEL_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx"]);
+const DEFAULT_THREE_VERSION = "0.149.0";
 
 function isImageFilename(filename) {
     if (!filename) {
@@ -14,6 +16,30 @@ function isImageFilename(filename) {
         return false;
     }
     return IMAGE_EXTENSIONS.has(parts.pop().toLowerCase());
+}
+
+async function ensureThreeLoaders(THREE) {
+    const version = THREE?.REVISION ? `0.${THREE.REVISION}.0` : DEFAULT_THREE_VERSION;
+    const baseUrl = `https://cdn.jsdelivr.net/npm/three@${version}/examples/js`;
+    const loaders = [];
+    if (!THREE.OrbitControls) {
+        loaders.push(loadJS(`${baseUrl}/controls/OrbitControls.js`));
+    }
+    if (!THREE.GLTFLoader) {
+        loaders.push(loadJS(`${baseUrl}/loaders/GLTFLoader.js`));
+    }
+    if (!THREE.OBJLoader) {
+        loaders.push(loadJS(`${baseUrl}/loaders/OBJLoader.js`));
+    }
+    if (!THREE.FBXLoader) {
+        loaders.push(loadJS(`${baseUrl}/loaders/FBXLoader.js`));
+    }
+    if (loaders.length) {
+        await Promise.all(loaders);
+    }
+    if (!THREE.OrbitControls || !THREE.GLTFLoader || !THREE.OBJLoader || !THREE.FBXLoader) {
+        throw new Error("No se pudieron cargar los loaders de Three.js.");
+    }
 }
 
 
@@ -40,6 +66,7 @@ export class ThreeJSViewer extends Component {
             if (!THREE) {
                 throw new Error("Three.js no esta disponible en assets.");
             }
+            await ensureThreeLoaders(THREE);
             const container = this.containerRef.el;
             const { width, height } = container.getBoundingClientRect();
             this.scene = new THREE.Scene();
