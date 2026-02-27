@@ -64,39 +64,10 @@ patch(StockMove.prototype, {
         this.notification = useService("notification");
     },
 
-    openThreeDViewer() {
+    openThreeDViewer(e) {
+
         const record = this.props.record;
         if (!record?.data?.has_render_3d) {
-            this.notification.add("No hay plano 3D disponible.", { type: "warning" });
-            return;
-        }
-        const resId = record.resId || record.data.id;
-        const resModel = record.resModel || "stock.move";
-        if (!resId) {
-            this.notification.add("No se pudo identificar el componente.", { type: "danger" });
-            return;
-        }
-        const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
-        this.dialog.add(ThreeJSDialog, {
-            title: "Plano",
-            modelUrl,
-            filename: record.data.render_3d_filename,
-        });
-    },
-});
-patch(MrpDisplayRecord.prototype, {
-    setup() {
-        super.setup();
-        this.dialog = useService("dialog");
-        this.notification = useService("notification");
-    },
-
-    openThreeDViewer(record) {
-        console.log("Opening 3D viewer with record:", record);
-
-        if (!record?.data?.has_render_3d) {
-            console.log("No 3D model available for record:", record);
-
             this.notification.add("No hay plano 3D disponible.", { type: "warning" });
             return;
         }
@@ -114,6 +85,14 @@ patch(MrpDisplayRecord.prototype, {
             filename: record.data.render_3d_filename,
         });
     },
+});
+patch(MrpDisplayRecord.prototype, {
+    setup() {
+        super.setup();
+        this.dialog = useService("dialog");
+        this.notification = useService("notification");
+    },
+
 
     _filterMovesByWorkcenter(moves) {
         const workcenterId = this.props.record.data.workcenter_id?.id;

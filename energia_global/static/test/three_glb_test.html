@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Three.js GLB Test</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; }
+      #viewer { width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="viewer"></div>
+
+    <!-- Local three.min.js from this repo -->
+    <script src="../lib/three/three.min.js"></script>
+    <script>
+      const revision = window.THREE?.REVISION || "149";
+      const version = `0.${revision}.0`;
+      const baseUrl = `https://cdn.jsdelivr.net/npm/three@${version}/examples/js`;
+      const scripts = [
+        `${baseUrl}/controls/OrbitControls.js`,
+        `${baseUrl}/loaders/GLTFLoader.js`,
+      ];
+
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = src;
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      Promise.all(scripts.map(loadScript))
+        .then(init)
+        .catch((err) => console.error("Loader error:", err));
+
+      function init() {
+        const container = document.getElementById("viewer");
+        const { clientWidth: width, clientHeight: height } = container;
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
+        camera.position.set(2, 2, 2);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(width, height);
+        container.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 5, 5);
+        scene.add(dirLight);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        const loader = new THREE.GLTFLoader();
+        loader.load(
+          "./model.glb",
+          (gltf) => {
+            scene.add(gltf.scene);
+            fitToView(gltf.scene);
+            animate();
+          },
+          undefined,
+          (error) => console.error("GLB load error:", error)
+        );
+
+        function fitToView(object) {
+          const box = new THREE.Box3().setFromObject(object);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z) || 1;
+          const distance = maxDim * 1.8;
+          camera.position.set(center.x + distance, center.y + distance, center.z + distance);
+          controls.target.copy(center);
+          controls.update();
+        }
+
+        function animate() {
+          controls.update();
+          renderer.render(scene, camera);
+          requestAnimationFrame(animate);
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -1,12 +1,9 @@
 /** @odoo-module */
 
 import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
-import { loadJS } from "@web/core/assets";
 import { Dialog } from "@web/core/dialog/dialog";
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const MODEL_EXTENSIONS = new Set(["glb", "gltf", "obj", "fbx"]);
-const DEFAULT_THREE_VERSION = "0.149.0";
-let loadersPromise = null;
 
 function isImageFilename(filename) {
     if (!filename) {
@@ -19,26 +16,6 @@ function isImageFilename(filename) {
     return IMAGE_EXTENSIONS.has(parts.pop().toLowerCase());
 }
 
-async function ensureThreeLoaders(THREE) {
-    if (loadersPromise) {
-        await loadersPromise;
-        return;
-    }
-    const revision = THREE?.REVISION;
-    const version = revision ? `0.${revision}.0` : DEFAULT_THREE_VERSION;
-    const baseUrl = `https://cdn.jsdelivr.net/npm/three@${version}/examples/js`;
-    loadersPromise = Promise.all([
-        loadJS(`${baseUrl}/controls/OrbitControls.js`),
-        loadJS(`${baseUrl}/loaders/GLTFLoader.js`),
-        loadJS(`${baseUrl}/loaders/OBJLoader.js`),
-        loadJS(`${baseUrl}/loaders/FBXLoader.js`),
-    ]).then(() => {
-        if (!THREE.OrbitControls || !THREE.GLTFLoader || !THREE.OBJLoader || !THREE.FBXLoader) {
-            throw new Error("No se pudieron cargar los loaders de Three.js.");
-        }
-    });
-    await loadersPromise;
-}
 
 
 export class ThreeJSViewer extends Component {
@@ -62,9 +39,9 @@ export class ThreeJSViewer extends Component {
             if (!THREE) {
                 throw new Error("Three.js no esta disponible en assets.");
             }
-            await ensureThreeLoaders(THREE);
             const container = this.containerRef.el;
             const { width, height } = container.getBoundingClientRect();
+            console.log("Initializing Three.js scene with container size:", width, height);
             this.scene = new THREE.Scene();
             this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
             this.camera.position.set(2, 2, 2);
@@ -153,7 +130,9 @@ export class ThreeJSViewer extends Component {
             throw new Error("Formato 3D no soportado.");
         }
         const addToScene = (object) => {
+            console.log("Adding model to scene:", object);
             this.scene.add(object);
+            console.log("Model added to scene, fitting to view...", this.scene);
             this._fitToView(THREE, object);
         };
         const loadWith = (loader, onSuccess) =>
@@ -164,7 +143,7 @@ export class ThreeJSViewer extends Component {
                         onSuccess(data);
                         resolve();
                     },
-                    undefined,
+                    console.log('Loading model...'),
                     (error) => reject(error || new Error("No se pudo cargar el modelo 3D."))
                 );
             });
@@ -173,7 +152,8 @@ export class ThreeJSViewer extends Component {
                 throw new Error("OBJLoader no esta disponible en assets.");
             }
             const loader = new THREE.OBJLoader();
-            await loadWith(loader, (object) => addToScene(object));
+            const e = await loadWith(loader, (object) => addToScene(object));
+            console.log("OBJ model loaded:", e);
             return;
         }
         if (extension === "fbx") {
@@ -193,11 +173,16 @@ export class ThreeJSViewer extends Component {
 
     _fitToView(THREE, object) {
         const box = new THREE.Box3().setFromObject(object);
+        console.log("Model bounding box:", box);
         const size = box.getSize(new THREE.Vector3());
+        console.log("Model bounding box:", size);
         const center = box.getCenter(new THREE.Vector3());
+        console.log("Model center:", center);
         const maxDim = Math.max(size.x, size.y, size.z) || 1;
         const distance = maxDim * 1.8;
         this.camera.position.set(center.x + distance, center.y + distance, center.z + distance);
+        console.log("Camera position set to:", this.camera.position);
+        console.log("Camera position set to:", this.controls);
         if (this.controls) {
             this.controls.target.copy(center);
             this.controls.update();
