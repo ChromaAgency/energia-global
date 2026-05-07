@@ -10,7 +10,13 @@ class TestMrpComponentWorkcenter(TransactionCase):
         cls.company = cls.env.company
         cls.uom_unit = cls.env.ref("uom.product_uom_unit")
         cls.location_src = cls.env.ref("stock.stock_location_stock")
-        cls.location_dest = cls.env.ref("stock.stock_location_production")
+        cls.location_dest = cls.env["stock.location"].search(
+            [
+                ("usage", "=", "production"),
+                ("company_id", "in", [False, cls.company.id]),
+            ],
+            limit=1,
+        ) or cls.location_src
 
         cls.workcenter_a = cls.env["mrp.workcenter"].create({
             "name": "WC A",
@@ -21,36 +27,18 @@ class TestMrpComponentWorkcenter(TransactionCase):
             "company_id": cls.company.id,
         })
 
-        operation_model = cls.env["mrp.bom.line"]._fields["operation_id"].comodel_name
-        cls.operation_a = cls.env[operation_model].create({
-            "name": "Op A",
-            "workcenter_id": cls.workcenter_a.id,
-            "company_id": cls.company.id,
-        })
-        cls.operation_b = cls.env[operation_model].create({
-            "name": "Op B",
-            "workcenter_id": cls.workcenter_b.id,
-            "company_id": cls.company.id,
-        })
-
         cls.product_tmpl = cls.env["product.template"].create({
             "name": "Finished Product",
-            "type": "product",
             "uom_id": cls.uom_unit.id,
-            "uom_po_id": cls.uom_unit.id,
         })
         cls.product = cls.product_tmpl.product_variant_id
         cls.component = cls.env["product.product"].create({
             "name": "Component 1",
-            "type": "product",
             "uom_id": cls.uom_unit.id,
-            "uom_po_id": cls.uom_unit.id,
         })
         cls.alt_component = cls.env["product.product"].create({
             "name": "Component 1 Alt",
-            "type": "product",
             "uom_id": cls.uom_unit.id,
-            "uom_po_id": cls.uom_unit.id,
         })
 
         cls.bom = cls.env["mrp.bom"].create({
@@ -60,9 +48,23 @@ class TestMrpComponentWorkcenter(TransactionCase):
             "type": "normal",
         })
 
+        operation_model = cls.env["mrp.bom.line"]._fields["operation_id"].comodel_name
+        cls.operation_a = cls.env[operation_model].create({
+            "name": "Op A",
+            "workcenter_id": cls.workcenter_a.id,
+            "company_id": cls.company.id,
+            "bom_id": cls.bom.id,
+        })
+        cls.operation_b = cls.env[operation_model].create({
+            "name": "Op B",
+            "workcenter_id": cls.workcenter_b.id,
+            "company_id": cls.company.id,
+            "bom_id": cls.bom.id,
+        })
+
     def _create_move(self, **values):
         base_vals = {
-            "name": self.component.display_name,
+            "description_picking": self.component.display_name,
             "product_id": self.component.id,
             "product_uom": self.uom_unit.id,
             "product_uom_qty": 1.0,
