@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_mrp_production_form_cnc_tab" model="ir.ui.view">
+        <field name="name">mrp.production.form.cnc.tab</field>
+        <field name="model">mrp.production</field>
+        <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="CNC" name="cnc_tracking_page">
+                    <group>
+                        <group>
+                            <field name="cnc_tracking_total" readonly="1"/>
+                            <field name="cnc_tracking_done" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="all_cnc_done" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="cnc_tracking_ids" context="{'default_production_id': id}">
+                        <list editable="bottom" create="1" delete="1">
+                            <field name="sequence" widget="handle"/>
+                            <field name="cnc_number"/>
+                            <field name="quantity"/>
+                            <field name="state"/>
+                            <field name="user_id" readonly="1"/>
+                            <field name="date_start" readonly="1"/>
+                            <field name="date_end" readonly="1"/>
+                            <field name="duration" readonly="1"/>
+                            <button name="action_start" type="object" string="Iniciar" class="btn-primary" invisible="state not in ('idle', 'paused')"/>
+                            <button name="action_pause" type="object" string="Pausar" class="btn-secondary" invisible="state != 'working'"/>
+                            <button name="action_resume" type="object" string="Continuar" class="btn-secondary" invisible="state != 'paused'"/>
+                            <button name="action_finish" type="object" string="Terminar" class="btn-success" invisible="state not in ('working', 'paused')"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

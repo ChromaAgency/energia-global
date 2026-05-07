@@ -7,6 +7,50 @@
                 <h6 class="mb-0" t-if="props.record.resModel === 'mrp.workorder' ? props.production.data.customer_name : props.record.data.customer_name" t-out="(props.record.resModel === 'mrp.workorder' ? props.production.data.customer_name : props.record.data.customer_name)"/>
             </div>
         </xpath>
+        <xpath expr="//div[contains(@class, 'o_mrp_display_record_title')]" position="after">
+            <t t-if="showCncPanel">
+                <div class="w-100 mt-2 border rounded p-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>CNC</strong>
+                        <span class="small text-muted" t-if="cncUiState.loading">Cargando...</span>
+                    </div>
+                    <div t-if="!cncUiState.loading and !cncUiState.records.length">
+                        <span class="small text-muted">Sin registros CNC para esta OF.</span>
+                    </div>
+                    <div class="d-flex flex-column gap-2" t-if="cncUiState.records.length">
+                        <t t-foreach="cncUiState.records" t-as="cnc" t-key="cnc.id">
+                            <div class="border rounded p-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                                    <div class="d-flex flex-column">
+                                        <span class="fw-bold" t-out="cnc.cnc_number"/>
+                                        <span class="small text-muted">
+                                            Cantidad: <t t-out="cnc.quantity"/> | Estado: <t t-out="cnc.state"/> | Tiempo: <t t-out="_formatCncDuration(cnc.duration)"/>
+                                        </span>
+                                    </div>
+                                    <div class="btn-group">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" t-if="_canOpenCncPlan(cnc)" t-on-click="(ev) => this.onOpenCncPlan(cnc, ev)">
+                                            Plano
+                                        </button>
+                                        <button type="button" class="btn btn-primary btn-sm" t-if="_canStartCnc(cnc)" t-on-click="(ev) => this.onStartCnc(cnc, ev)">
+                                            Iniciar
+                                        </button>
+                                        <button type="button" class="btn btn-secondary btn-sm" t-if="_canPauseCnc(cnc)" t-on-click="(ev) => this.onPauseCnc(cnc, ev)">
+                                            Pausar
+                                        </button>
+                                        <button type="button" class="btn btn-secondary btn-sm" t-if="_canResumeCnc(cnc)" t-on-click="(ev) => this.onResumeCnc(cnc, ev)">
+                                            Continuar
+                                        </button>
+                                        <button type="button" class="btn btn-success btn-sm" t-if="_canFinishCnc(cnc)" t-on-click="(ev) => this.onFinishCnc(cnc, ev)">
+                                            Terminar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </t>
+        </xpath>
     </t>
     
     <t t-inherit="mrp_workorder.StockMove" t-inherit-mode="extension">

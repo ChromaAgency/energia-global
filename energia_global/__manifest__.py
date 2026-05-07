@@ -21,8 +21,11 @@
     'depends': ['base', 'mrp', 'mrp_workorder', 'sale_mrp'],
     # always loaded
     'data': [
+        'security/ir.model.access.csv',
         'views/mrp_workorder_component_filter_views.xml',
+        'views/mrp_bom_cnc_views.xml',
         'views/mrp_workcenter_behavior_views.xml',
+        'views/mrp_production_cnc_views.xml',
     ],
     'assets': {
         'web.assets_backend': [ 
