@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_itec_api_key_list" model="ir.ui.view">
+        <field name="name">itec.api.key.list</field>
+        <field name="model">itec.api.key</field>
+        <field name="arch" type="xml">
+            <list string="API Keys ITEC">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="active"/>
+                <field name="expires_on"/>
+                <field name="last_used"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_itec_api_key_form" model="ir.ui.view">
+        <field name="name">itec.api.key.form</field>
+        <field name="model">itec.api.key</field>
+        <field name="arch" type="xml">
+            <form string="API Key ITEC">
+                <header>
+                    <button name="action_regenerate_key"
+                            type="object"
+                            string="Regenerar Key"
+                            class="oe_highlight"
+                            confirm="Esto invalidará el token actual. ¿Continuar?"
+                            invisible="not id"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="Inactivo" bg_color="bg-danger"
+                            invisible="active"/>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="user_id"/>
+                            <field name="active"/>
+                            <field name="expires_on"/>
+                        </group>
+                        <group>
+                            <field name="key" widget="CopyClipboardChar"/>
+                            <field name="last_used" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Notas">
+                        <field name="note" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_itec_api_key" model="ir.actions.act_window">
+        <field name="name">API Keys ITEC</field>
+        <field name="res_model">itec.api.key</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Creá una nueva API Key
+            </p>
+            <p>
+                Las claves generadas acá deben enviarse en el header
+                <code>X-API-Key</code> de cada request a los endpoints
+                <code>/api/v1/itec/...</code>.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_itec_api_root"
+              name="Itec API"
+              parent="base.menu_administration"
+              sequence="100"/>
+
+    <menuitem id="menu_itec_api_keys"
+              name="API Keys"
+              parent="menu_itec_api_root"
+              action="action_itec_api_key"
+              sequence="10"/>
+
+</odoo>

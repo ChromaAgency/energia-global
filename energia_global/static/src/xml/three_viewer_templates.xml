@@ -2,9 +2,44 @@
 <templates xml:space="preserve">
     <t t-name="energia_global.ThreeJSViewer" owl="1">
         <div class="o_threejs_viewer d-flex flex-column">
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.setMode('navigate')">
+                    Navegar
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-success" t-on-click="() => this.setMode('distance')">
+                    Medir distancia
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" t-on-click="() => this.setMode('angle')">
+                    Medir angulo
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-dark" t-on-click="fitToModel">
+                    Ajustar vista
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-dark" t-on-click="resetCamera">
+                    Reset camara
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger" t-on-click="clearMeasurements">
+                    Limpiar
+                </button>
+                <div class="d-flex align-items-center gap-1 ms-auto">
+                    <span class="small text-muted">Factor a cm</span>
+                    <input
+                        type="number"
+                        class="form-control form-control-sm"
+                        style="width: 110px;"
+                        min="0.000001"
+                        step="0.0001"
+                        t-att-value="state.unitToCm"
+                        t-on-change="setUnitToCm"
+                    />
+                </div>
+            </div>
             <div t-ref="canvasContainer" class="border" style="height: 420px; width: 100%;"></div>
             <t t-if="state.loading">
                 <div class="text-muted small mt-2">Cargando modelo 3D...</div>
+            </t>
+            <t t-if="state.statusText">
+                <div class="alert alert-info mt-2 mb-0 py-1" role="status" t-out="state.statusText"/>
             </t>
             <t t-if="state.error">
                 <div class="alert alert-danger mt-2 mb-0" role="alert" t-out="state.error"/>
@@ -17,7 +52,11 @@
 
             <t t-if="state.view === '3d'">
                 <t t-if="has3d">
-                    <ThreeJSViewer modelUrl="props.modelUrl" base64Data="props.base64Data"/>
+                    <ThreeJSViewer
+                        modelUrl="props.modelUrl"
+                        base64Data="props.base64Data"
+                        filename="props.filename"
+                    />
                 </t>
                 <t t-else="">
                     <div class="alert alert-danger m-0" role="alert">

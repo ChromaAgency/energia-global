@@ -16,7 +16,6 @@ import { ThreeJSDialog } from "./three_viewer";
 patch(MrpDisplay.prototype, {
     setup(){
         super.setup();
-        console.log(this)
     }
 })
 patch(MrpDisplayAction.prototype, {
@@ -31,6 +30,7 @@ patch(MrpDisplayAction.prototype, {
         ensureField("stock.move", "related_operation_ids");
         ensureField("stock.move", "alternative_product_id");
         ensureField("stock.move", "cnc_number");
+        
         if (
             fieldsStructure["stock.move"] &&
             !fieldsStructure["stock.move"].includes("has_render_3d")
@@ -76,11 +76,12 @@ patch(StockMove.prototype, {
             return;
         }
         const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
-        console.log("Opening 3D viewer with URL:", modelUrl);
         this.dialog.add(ThreeJSDialog, {
             title: "Plano",
             modelUrl,
             filename: record.data.render_3d_filename,
+            onOpen: () => this._handleViewerOpened(),
+            onClose: () => this._handleViewerClosed(),
         });
     },
 });
@@ -88,14 +89,20 @@ patch(MrpDisplayRecord.prototype, {
     setup() {
         super.setup();
         this.dialog = useService("dialog");
+        this.orm = useService("orm");
         this.notification = useService("notification");
+        this.cncUiState = useState({
+            loading: false,
+            records: [],
+        });
+        onWillStart(async () => {
+            await this._refreshCncTracking();
+        });
     },
 
 
     _filterMovesByWorkcenter(moves) {
         const workcenterId = this.props.record.data.workcenter_id?.id;
-        const contextWorkorderId =
-            this.props.record?.resModel === "mrp.workorder" ? this.props.record?.resId : false;
         return moves.filter((move) => {
             const relatedWorkcenters = move.data.related_workcenter_ids?.resIds || [];
             if (!relatedWorkcenters.length) {
@@ -108,8 +115,6 @@ patch(MrpDisplayRecord.prototype, {
             if (!isRelatedToCurrentWorkcenter) {
                 return false;
             }
-            move.data._context_workcenter_id = workcenterId;
-            move.data._context_workorder_id = contextWorkorderId;
             return true;
         });
     },
@@ -120,17 +125,157 @@ patch(MrpDisplayRecord.prototype, {
         );
         return this._filterMovesByWorkcenter(productionMoves);
     },
+
+    get isWorkorderRecord() {
+        return this.props.record?.resModel === "mrp.workorder";
+    },
+
+    _extractRecordId(value) {
+        if (!value) {
+            return false;
+        }
+        if (typeof value === "number") {
+            return value;
+        }
+        return value.resId || value.id || value.data?.id || false;
+    },
+
+    _getWorkorderId() {
+        if (this.isWorkorderRecord && this.props.record?.resId) {
+            return this.props.record.resId;
+        }
+        return this._extractRecordId(this.props.record?.data?.workorder_id);
+    },
+
+    _getProductionId() {
+        const fromPropsProduction = this._extractRecordId(this.props.production);
+        if (fromPropsProduction) {
+            return fromPropsProduction;
+        }
+        return this._extractRecordId(this.props.record?.data?.production_id);
+    },
+
+    _getCurrentWorkcenterName() {
+        const workcenter = this.props.record?.data?.workcenter_id;
+        return (workcenter?.display_name || workcenter?.data?.display_name || "").toLowerCase();
+    },
+
+    get showCncPanel() {
+        if (!this.isWorkorderRecord) {
+            return false;
+        }
+        const workcenterName = this._getCurrentWorkcenterName();
+        return workcenterName.includes("laser") || workcenterName.includes("láser") || workcenterName.includes("cnc");
+    },
+
+    async _refreshCncTracking() {
+        if (!this.showCncPanel) {
+            this.cncUiState.records = [];
+            return;
+        }
+        const productionId = this._getProductionId();
+        if (!productionId) {
+            this.cncUiState.records = [];
+            return;
+        }
+        this.cncUiState.loading = true;
+        try {
+            const cncRows = await this.orm.searchRead(
+                "mrp.cnc.tracking",
+                [["production_id", "=", productionId]],
+                ["id", "cnc_number", "quantity", "state", "user_id", "duration", "has_render_3d", "render_3d_filename"],
+                { order: "sequence asc, id asc" }
+            );
+            this.cncUiState.records = cncRows || [];
+        } finally {
+            this.cncUiState.loading = false;
+        }
+    },
+
+    _getCncModelUrl(cncId) {
+        return `/web/content?model=mrp.cnc.tracking&id=${cncId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
+    },
+
+    _canOpenCncPlan(record) {
+        return Boolean(record?.has_render_3d || record?.render_3d_filename);
+    },
+
+    onOpenCncPlan(record, ev) {
+        ev.stopPropagation();
+        if (!this._canOpenCncPlan(record)) {
+            this.notification.add(_t("No hay plano 3D disponible para este CNC."), {
+                type: "warning",
+            });
+            return;
+        }
+        this.dialog.add(ThreeJSDialog, {
+            title: _t("Plano CNC"),
+            modelUrl: this._getCncModelUrl(record.id),
+            filename: record.render_3d_filename,
+        });
+    },
+
+    _canStartCnc(record) {
+        return record.state === "idle" || record.state === "paused";
+    },
+
+    _canPauseCnc(record) {
+        return record.state === "working";
+    },
+
+    _canResumeCnc(record) {
+        return record.state === "paused";
+    },
+
+    _canFinishCnc(record) {
+        return record.state === "working" || record.state === "paused";
+    },
+
+    _formatCncDuration(duration) {
+        const numericDuration = Number(duration || 0);
+        return `${numericDuration.toFixed(2)} min`;
+    },
+
+    async _runCncAction(cncId, methodName) {
+        if (!cncId) {
+            return;
+        }
+        await this.orm.call("mrp.cnc.tracking", methodName, [[cncId]]);
+        await this._refreshCncTracking();
+    },
+
+    async onStartCnc(record, ev) {
+        ev.stopPropagation();
+        await this._runCncAction(record.id, "action_start");
+    },
+
+    async onPauseCnc(record, ev) {
+        ev.stopPropagation();
+        await this._runCncAction(record.id, "action_pause");
+    },
+
+    async onResumeCnc(record, ev) {
+        ev.stopPropagation();
+        await this._runCncAction(record.id, "action_resume");
+    },
+
+    async onFinishCnc(record, ev) {
+        ev.stopPropagation();
+        await this._runCncAction(record.id, "action_finish");
+    },
 });
 
 patch(StockMove.prototype, {
     setup() {
         super.setup();
+        this.dialog = useService("dialog");
         this.orm = useService("orm");
         this.notification = useService("notification");
         this.uiState = useState({
             pieceState: "idle",
             isUnlocked: false,
             blockedByText: false,
+            viewerOpenCount: 0,
         });
         onWillStart(async () => {
             await this._refreshPieceState();
@@ -196,10 +341,6 @@ patch(StockMove.prototype, {
     },
 
     _getWorkorderRecord() {
-        const contextWorkorderId = this.props?.record?.data?._context_workorder_id;
-        if (contextWorkorderId) {
-            return contextWorkorderId;
-        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder") {
             return rootRecord;
@@ -218,10 +359,6 @@ patch(StockMove.prototype, {
     },
 
     _getCurrentWorkcenterId() {
-        const contextWorkcenterId = this.props?.record?.data?._context_workcenter_id;
-        if (contextWorkcenterId) {
-            return contextWorkcenterId;
-        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder") {
             const rootWorkcenter = rootRecord?.data?.workcenter_id;
@@ -279,19 +416,27 @@ patch(StockMove.prototype, {
         ]);
     },
 
-    async _handlePieceAction(action) {
+    async _handlePieceAction(action, options = {}) {
         const moveId = this.props.record?.resId || this.props.record?.data?.id;
         if (!moveId) {
-            this.notification.add(_t("No se pudo identificar el componente."), {
-                type: "warning",
-            });
+            if (!options.silent) {
+                this.notification.add(_t("No se pudo identificar el componente."), {
+                    type: "warning",
+                });
+            }
             return;
         }
         const workorderId = await this._resolveWorkorderId(moveId);
         if (!workorderId) {
-            this.notification.add(_t("No se pudo identificar la orden de trabajo."), {
-                type: "warning",
-            });
+            if (!options.silent) {
+                this.notification.add(_t("No se pudo identificar la orden de trabajo."), {
+                    type: "warning",
+                });
+            }
+            return;
+        }
+
+        if (action === "pause" && options.skipIfNotWorking && this.uiState.pieceState !== "working") {
             return;
         }
 
@@ -301,10 +446,12 @@ patch(StockMove.prototype, {
                 moveId,
             ]);
             if (!unlocked) {
-                this.notification.add(
-                    _t("La pieza está bloqueada hasta completar todas las operaciones que la bloquean."),
-                    { type: "warning" }
-                );
+                if (!options.silent) {
+                    this.notification.add(
+                        _t("La pieza está bloqueada hasta completar todas las operaciones que la bloquean."),
+                        { type: "warning" }
+                    );
+                }
                 await this._refreshPieceState();
                 return;
             }
@@ -321,6 +468,22 @@ patch(StockMove.prototype, {
         if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent(PIECE_STATE_REFRESH_EVENT));
         }
+    },
+
+    async _handleViewerOpened() {
+        if (this.uiState.viewerOpenCount === 0) {
+            await this._handlePieceAction("start", { silent: true });
+        }
+        this.uiState.viewerOpenCount += 1;
+    },
+
+    async _handleViewerClosed() {
+        this.uiState.viewerOpenCount = Math.max(0, (this.uiState.viewerOpenCount || 0) - 1);
+        if (this.uiState.viewerOpenCount > 0) {
+            return;
+        }
+        await this._refreshPieceState();
+        await this._handlePieceAction("pause", { silent: true, skipIfNotWorking: true });
     },
 
     async onStartPiece(ev) {

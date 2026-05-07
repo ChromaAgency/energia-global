@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_mrp_cnc_tracking_user,mrp.cnc.tracking user,model_mrp_cnc_tracking,mrp.group_mrp_user,1,1,1,1
+access_mrp_cnc_tracking_manager,mrp.cnc.tracking manager,model_mrp_cnc_tracking,mrp.group_mrp_manager,1,1,1,1
+access_mrp_bom_cnc_user,mrp.bom.cnc user,model_mrp_bom_cnc,mrp.group_mrp_user,1,1,1,1
+access_mrp_bom_cnc_manager,mrp.bom.cnc manager,model_mrp_bom_cnc,mrp.group_mrp_manager,1,1,1,1

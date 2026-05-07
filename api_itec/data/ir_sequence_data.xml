@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!--
+        Secuencia usada por los endpoints REST para generar el `default_code`
+        de los productos creados desde la API. El código original
+        (`api_itec`) ya la consumía pero nunca la creaba; aquí se asegura
+        que exista al instalar el módulo.
+    -->
+    <record id="seq_itec_code" model="ir.sequence">
+        <field name="name">Itec Product Code</field>
+        <field name="code">itec.code</field>
+        <field name="prefix">ITEC-</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">standard</field>
+        <field name="company_id" eval="False"/>
+    </record>
+</odoo>
