@@ -28,7 +28,11 @@ patch(MrpDisplayAction.prototype, {
         };
         ensureField("stock.move", "related_workcenter_ids");
         ensureField("stock.move", "related_operation_ids");
+        ensureField("stock.move", "bom_line_id");
         ensureField("stock.move", "alternative_product_id");
+        ensureField("stock.move", "final_product_id");
+        ensureField("stock.move", "is_component_swap_allowed");
+        ensureField("stock.move", "component_finalization_state_label");
         ensureField("stock.move", "cnc_number");
         
         if (
@@ -661,6 +665,90 @@ patch(StockMove.prototype, {
         }
         await this._refreshPieceState();
         await this._handlePieceAction("pause", { silent: true, skipIfNotWorking: true });
+    },
+
+    _normalizeM2OValue(value) {
+        if (!value) {
+            return false;
+        }
+        if (Array.isArray(value)) {
+            return {
+                id: value[0],
+                resId: value[0],
+                display_name: value[1],
+            };
+        }
+        if (typeof value === "number") {
+            return {
+                id: value,
+                resId: value,
+                display_name: "",
+            };
+        }
+        return {
+            id: value.id || value.resId,
+            resId: value.resId || value.id,
+            display_name: value.display_name || value.data?.display_name || "",
+        };
+    },
+
+    async _refreshComponentData(moveId) {
+        const [moveData] = await this.orm.read("stock.move", [moveId], [
+            "product_id",
+            "alternative_product_id",
+        ]);
+        if (!moveData) {
+            return;
+        }
+        this.props.record.data.product_id = this._normalizeM2OValue(moveData.product_id);
+        this.props.record.data.alternative_product_id = this._normalizeM2OValue(
+            moveData.alternative_product_id
+        );
+    },
+
+    async _runComponentSwapAction(methodName, successMessage) {
+        const moveId = this.props.record?.resId || this.props.record?.data?.id;
+        if (!moveId) {
+            this.notification.add(_t("No se pudo identificar el componente."), {
+                type: "warning",
+            });
+            return;
+        }
+        await this.orm.call("stock.move", methodName, [[moveId]]);
+        await this._refreshComponentData(moveId);
+        if (successMessage) {
+            this.notification.add(successMessage, {
+                type: "success",
+            });
+        }
+    },
+
+    async onUseAlternativeComponent(ev) {
+        ev.stopPropagation();
+        if (!this.props.record?.data?.is_component_swap_allowed) {
+            this.notification.add(_t("No tienes permisos para intercambiar componentes."), {
+                type: "warning",
+            });
+            return;
+        }
+        await this._runComponentSwapAction(
+            "action_use_alternative_component",
+            _t("Componente alternativo aplicado.")
+        );
+    },
+
+    async onRestoreOriginalComponent(ev) {
+        ev.stopPropagation();
+        if (!this.props.record?.data?.is_component_swap_allowed) {
+            this.notification.add(_t("No tienes permisos para intercambiar componentes."), {
+                type: "warning",
+            });
+            return;
+        }
+        await this._runComponentSwapAction(
+            "action_restore_original_component",
+            _t("Componente original restaurado.")
+        );
     },
 
     async onStartPiece(ev) {

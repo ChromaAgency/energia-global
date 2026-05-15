@@ -6,7 +6,11 @@
         <field name="inherit_id" ref="mrp.mrp_production_workorder_form_view_inherit"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='move_raw_ids']/list//field[@name='product_id']" position="after">
+                <field name="final_product_id" readonly="1" optional="show"/>
                 <field name="alternative_product_id"/>
+                <button name="action_use_alternative_component" type="object" string="Usar alternativo" class="btn-link" groups="mrp.group_mrp_manager" invisible="not alternative_product_id or product_id == alternative_product_id"/>
+                <button name="action_restore_original_component" type="object" string="Volver a original" class="btn-link" groups="mrp.group_mrp_manager" invisible="not bom_line_id or not alternative_product_id or product_id != alternative_product_id"/>
+                <field name="component_finalization_state_label" readonly="1" optional="show"/>
                 <field name="related_workcenter_ids" widget="many2many_tags"/>
                 <field name="cnc_number"/>
                 <field name="weld_group"/>
@@ -19,8 +23,23 @@
         <field name="model">mrp.production</field>
         <field name="inherit_id" ref="mrp.mrp_production_form_view"/>
         <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Sumatoria de Componentes" name="component_summary_page">
+                    <field name="component_summary_line_ids" readonly="1" nolabel="1">
+                        <list create="0" delete="0">
+                            <field name="product_id"/>
+                            <field name="required_qty" sum="Total"/>
+                            <field name="uom_id"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
             <xpath expr="//field[@name='move_raw_ids']/list//field[@name='product_id']" position="after">
+                <field name="final_product_id" readonly="1" optional="show"/>
                 <field name="alternative_product_id"/>
+                <button name="action_use_alternative_component" type="object" string="Usar alternativo" class="btn-link" groups="mrp.group_mrp_manager" invisible="not alternative_product_id or product_id == alternative_product_id"/>
+                <button name="action_restore_original_component" type="object" string="Volver a original" class="btn-link" groups="mrp.group_mrp_manager" invisible="not bom_line_id or not alternative_product_id or product_id != alternative_product_id"/>
+                <field name="component_finalization_state_label" readonly="1" optional="show"/>
                 <field name="related_workcenter_ids" widget="many2many_tags"/>
                 <field name="cnc_number"/>
                 <field name="weld_group"/>
@@ -34,6 +53,7 @@
         <field name="inherit_id" ref="mrp.mrp_bom_form_view"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='bom_line_ids']/list//field[@name='product_id']" position="after">
+                <field name="visual_intermediate_product_id" optional="show"/>
                 <field name="operation_ids" widget="many2many_tags"/>
                 <field name="alternative_product_ids" widget="many2many_tags"/>
                 <field name="render_3d_file" filename="render_3d_filename" widget="binary"/>

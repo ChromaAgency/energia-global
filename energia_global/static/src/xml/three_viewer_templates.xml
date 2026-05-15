@@ -50,6 +50,18 @@
     <t t-name="energia_global.ThreeJSDialog" owl="1">
         <Dialog title="props.title || 'Plano'" size="'lg'">
 
+            <t t-if="downloadUrl">
+                <div class="d-flex justify-content-end mb-2">
+                    <a
+                        class="btn btn-sm btn-outline-secondary"
+                        t-att-href="downloadUrl"
+                        t-att-download="downloadFilename"
+                    >
+                        Descargar modelo
+                    </a>
+                </div>
+            </t>
+
             <t t-if="state.view === '3d'">
                 <t t-if="has3d">
                     <ThreeJSViewer

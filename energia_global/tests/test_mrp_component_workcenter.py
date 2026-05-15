@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
 
@@ -61,6 +62,21 @@ class TestMrpComponentWorkcenter(TransactionCase):
             "company_id": cls.company.id,
             "bom_id": cls.bom.id,
         })
+        cls.operator_user = cls.env["res.users"].with_context(no_reset_password=True).create({
+            "name": "MRP Operator",
+            "login": "mrp_operator_component_test",
+            "email": "mrp_operator_component_test@example.com",
+            "group_ids": [
+                (
+                    6,
+                    0,
+                    [
+                        cls.env.ref("base.group_user").id,
+                        cls.env.ref("mrp.group_mrp_user").id,
+                    ],
+                )
+            ],
+        })
 
     def _create_move(self, **values):
         base_vals = {
@@ -73,6 +89,34 @@ class TestMrpComponentWorkcenter(TransactionCase):
         }
         base_vals.update(values)
         return self.env["stock.move"].create(base_vals)
+
+    def _create_production_with_component_move(self, component_qty=2.0):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": component_qty,
+            "product_uom_id": self.uom_unit.id,
+            "operation_id": self.operation_a.id,
+            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Component Progress",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        workorder = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_a
+        )[:1] or production.workorder_ids[:1]
+        self.assertTrue(move)
+        self.assertTrue(workorder)
+        return production, workorder, move
 
     def test_related_workcenter_from_operation(self):
         bom_line = self.env["mrp.bom.line"].create({
@@ -126,8 +170,191 @@ class TestMrpComponentWorkcenter(TransactionCase):
             "alternative_product_ids": [(6, 0, [self.alt_component.id])],
         })
         move = self._create_move(bom_line_id=bom_line.id)
-        move._compute_alternative_products()
+        move._compute_alternative_product_ids()
+        move._compute_alternative_product_id()
         self.assertIn(self.alt_component, move.alternative_product_ids)
         move.alternative_product_id = self.alt_component
         move._onchange_alternative_product_id()
         self.assertEqual(move.product_id, self.alt_component)
+
+    def test_manager_can_swap_and_restore_component(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
+        })
+        move = self._create_move(bom_line_id=bom_line.id)
+
+        move.action_use_alternative_component()
+        self.assertEqual(move.product_id, self.alt_component)
+
+        move.action_restore_original_component()
+        self.assertEqual(move.product_id, self.component)
+
+    def test_operator_cannot_swap_component(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
+        })
+        move = self._create_move(bom_line_id=bom_line.id)
+
+        with self.assertRaises(UserError):
+            move.with_user(self.operator_user).action_use_alternative_component()
+
+    def test_operator_cannot_write_component_directly(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_id": self.operation_a.id,
+            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Write Guard",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        self.assertTrue(move)
+
+        with self.assertRaises(UserError):
+            move.with_user(self.operator_user).write({"product_id": self.alt_component.id})
+
+    def test_component_progress_and_production_totals(self):
+        production, workorder, move = self._create_production_with_component_move(component_qty=2.0)
+
+        self.assertFalse(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "pending")
+        self.assertEqual(production.component_total_planned_qty, 2.0)
+        self.assertEqual(production.component_total_done_qty, 0.0)
+
+        workorder.action_start_piece_time(move.id)
+        workorder.action_stop_piece_time(move.id)
+
+        self.assertTrue(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "done")
+        self.assertEqual(production.component_total_done_qty, 1.0)
+        self.assertEqual(production.component_total_remaining_qty, 1.0)
+
+        workorder.action_start_piece_time(move.id)
+        workorder.action_stop_piece_time(move.id)
+
+        self.assertTrue(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "done")
+        self.assertEqual(production.component_total_done_qty, 2.0)
+        self.assertEqual(production.component_total_remaining_qty, 0.0)
+        self.assertEqual(production.component_total_progress_pct, 100.0)
+
+    def test_component_totals_with_zero_target(self):
+        production, workorder, move = self._create_production_with_component_move(component_qty=0.0)
+
+        self.assertFalse(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "pending")
+
+        workorder.action_start_piece_time(move.id)
+        workorder.action_stop_piece_time(move.id)
+
+        self.assertTrue(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "done")
+        self.assertEqual(production.component_total_planned_qty, 0.0)
+        self.assertEqual(production.component_total_done_qty, 1.0)
+        self.assertEqual(production.component_total_progress_pct, 100.0)
+
+    def test_component_is_finalized_only_after_all_operations_done(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_ids": [(6, 0, [self.operation_a.id, self.operation_b.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Finalization Multi Operation",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        workorder_a = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_a
+        )[:1]
+        workorder_b = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_b
+        )[:1]
+
+        self.assertTrue(move)
+        self.assertTrue(workorder_a)
+        self.assertTrue(workorder_b)
+        self.assertFalse(move.component_is_finalized)
+
+        workorder_a.action_start_piece_time(move.id)
+        workorder_a.action_stop_piece_time(move.id)
+        self.assertFalse(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "pending")
+
+        workorder_b.action_start_piece_time(move.id)
+        workorder_b.action_stop_piece_time(move.id)
+        self.assertTrue(move.component_is_finalized)
+        self.assertEqual(move.component_finalization_state, "done")
+
+    def test_component_summary_groups_required_qty_by_product(self):
+        self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_id": self.operation_a.id,
+        })
+        self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 2.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_id": self.operation_a.id,
+        })
+        self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.alt_component.id,
+            "product_qty": 3.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_id": self.operation_b.id,
+        })
+
+        production = self.env["mrp.production"].create({
+            "name": "MO Component Summary",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+
+        summary_lines = production.component_summary_line_ids
+        self.assertEqual(len(summary_lines), 2)
+
+        component_line = summary_lines.filtered(lambda line: line.product_id == self.component)
+        alt_component_line = summary_lines.filtered(lambda line: line.product_id == self.alt_component)
+
+        self.assertEqual(component_line.required_qty, 3.0)
+        self.assertEqual(alt_component_line.required_qty, 3.0)
