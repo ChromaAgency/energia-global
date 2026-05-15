@@ -28,7 +28,11 @@ patch(MrpDisplayAction.prototype, {
         };
         ensureField("stock.move", "related_workcenter_ids");
         ensureField("stock.move", "related_operation_ids");
+        ensureField("stock.move", "bom_line_id");
         ensureField("stock.move", "alternative_product_id");
+        ensureField("stock.move", "final_product_id");
+        ensureField("stock.move", "is_component_swap_allowed");
+        ensureField("stock.move", "component_finalization_state_label");
         ensureField("stock.move", "cnc_number");
         
         if (
@@ -271,6 +275,8 @@ patch(StockMove.prototype, {
         this.dialog = useService("dialog");
         this.orm = useService("orm");
         this.notification = useService("notification");
+        this._workcenterBehaviorCache = {};
+        this._workcenterGroupingFieldCache = {};
         this.uiState = useState({
             pieceState: "idle",
             isUnlocked: false,
@@ -280,17 +286,81 @@ patch(StockMove.prototype, {
         onWillStart(async () => {
             await this._refreshPieceState();
         });
-        this._onPieceStateRefresh = () => {
-            this._refreshPieceState();
+        this._onPieceStateRefresh = (ev) => {
+            this._handlePieceStateRefreshEvent(ev);
         };
         if (typeof window !== "undefined") {
             window.addEventListener(PIECE_STATE_REFRESH_EVENT, this._onPieceStateRefresh);
         }
         onWillUnmount(() => {
+            if (this._groupRefreshTimeout) {
+                clearTimeout(this._groupRefreshTimeout);
+                this._groupRefreshTimeout = null;
+            }
             if (typeof window !== "undefined") {
                 window.removeEventListener(PIECE_STATE_REFRESH_EVENT, this._onPieceStateRefresh);
             }
         });
+    },
+
+    _getCurrentMoveId() {
+        return this.props.record?.resId || this.props.record?.data?.id;
+    },
+
+    _applyPieceStateFromAction(action) {
+        if (action === "start") {
+            this.uiState.pieceState = "working";
+            this.uiState.isUnlocked = true;
+            this.uiState.blockedByText = false;
+            return;
+        }
+        if (action === "pause") {
+            this.uiState.pieceState = "paused";
+            this.uiState.isUnlocked = true;
+            this.uiState.blockedByText = false;
+            return;
+        }
+        if (action === "stop") {
+            this.uiState.pieceState = "done";
+            this.uiState.isUnlocked = true;
+            this.uiState.blockedByText = false;
+        }
+    },
+
+    _handlePieceStateRefreshEvent(ev) {
+        const detail = ev?.detail || {};
+        if (detail?.scope !== "grouped") {
+            this._refreshPieceState();
+            return;
+        }
+        const currentMoveId = this._getCurrentMoveId();
+        if (!currentMoveId) {
+            return;
+        }
+        const currentWorkcenterId = this._getCurrentWorkcenterId();
+        if (detail.workcenterId && currentWorkcenterId && detail.workcenterId !== currentWorkcenterId) {
+            return;
+        }
+        const sameMove = detail.sourceMoveId === currentMoveId;
+        const ownGroupValue = detail.groupingField ? this.props.record?.data?.[detail.groupingField] : false;
+        const sameGroup = Boolean(
+            !sameMove && detail.groupingField && detail.groupValue && ownGroupValue === detail.groupValue
+        );
+        if (!sameMove && !sameGroup) {
+            return;
+        }
+        this._applyPieceStateFromAction(detail.action);
+        if (sameMove) {
+            this._refreshPieceState();
+            return;
+        }
+        if (this._groupRefreshTimeout) {
+            clearTimeout(this._groupRefreshTimeout);
+        }
+        this._groupRefreshTimeout = setTimeout(() => {
+            this._refreshPieceState();
+            this._groupRefreshTimeout = null;
+        }, 900);
     },
 
     get showStartButton() {
@@ -375,6 +445,87 @@ patch(StockMove.prototype, {
         return workcenter?.resId || workcenter?.id || workcenter?.data?.id;
     },
 
+    _getCurrentWorkcenterRecord() {
+        const rootRecord = this.props?.record?.model?.root;
+        if (rootRecord?.resModel === "mrp.workorder" && rootRecord?.data?.workcenter_id) {
+            return rootRecord.data.workcenter_id;
+        }
+        const fromRecord = this.props?.record?.data?.workcenter_id;
+        const fromWorkorder = this.props?.workorder?.data?.workcenter_id;
+        const fromRoot = this.props?.record?.model?.root?.data?.workcenter_id;
+        return fromRecord || fromWorkorder || fromRoot || null;
+    },
+
+    _getWorkcenterBehaviorTypeFromData() {
+        const workcenter = this._getCurrentWorkcenterRecord();
+        return workcenter?.behavior_type || workcenter?.data?.behavior_type || false;
+    },
+
+    _getWorkcenterGroupingFieldFromData() {
+        const workcenter = this._getCurrentWorkcenterRecord();
+        return workcenter?.grouping_field || workcenter?.data?.grouping_field || false;
+    },
+
+    async _resolveGroupingField(workorderId) {
+        const localGroupingField = this._getWorkcenterGroupingFieldFromData();
+        if (localGroupingField) {
+            return localGroupingField;
+        }
+        if (!workorderId) {
+            return false;
+        }
+        if (Object.prototype.hasOwnProperty.call(this._workcenterGroupingFieldCache, workorderId)) {
+            return this._workcenterGroupingFieldCache[workorderId] || false;
+        }
+        try {
+            const [workorderData] = await this.orm.read("mrp.workorder", [workorderId], ["workcenter_id"]);
+            const workcenterId = workorderData?.workcenter_id?.[0];
+            if (!workcenterId) {
+                this._workcenterGroupingFieldCache[workorderId] = false;
+                return false;
+            }
+            const [workcenterData] = await this.orm.read("mrp.workcenter", [workcenterId], ["grouping_field"]);
+            const groupingField = workcenterData?.grouping_field || false;
+            this._workcenterGroupingFieldCache[workorderId] = groupingField;
+            return groupingField;
+        } catch (_error) {
+            return false;
+        }
+    },
+
+    _dispatchPieceStateRefresh(detail = {}) {
+        if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent(PIECE_STATE_REFRESH_EVENT, { detail }));
+        }
+    },
+
+    async _isGroupedWorkcenter(workorderId) {
+        const localBehaviorType = this._getWorkcenterBehaviorTypeFromData();
+        if (localBehaviorType) {
+            return localBehaviorType === "grouped";
+        }
+        if (!workorderId) {
+            return null;
+        }
+        if (Object.prototype.hasOwnProperty.call(this._workcenterBehaviorCache, workorderId)) {
+            return this._workcenterBehaviorCache[workorderId] === "grouped";
+        }
+        try {
+            const [workorderData] = await this.orm.read("mrp.workorder", [workorderId], ["workcenter_id"]);
+            const workcenterId = workorderData?.workcenter_id?.[0];
+            if (!workcenterId) {
+                this._workcenterBehaviorCache[workorderId] = false;
+                return null;
+            }
+            const [workcenterData] = await this.orm.read("mrp.workcenter", [workcenterId], ["behavior_type"]);
+            const behaviorType = workcenterData?.behavior_type || false;
+            this._workcenterBehaviorCache[workorderId] = behaviorType;
+            return behaviorType === "grouped";
+        } catch (_error) {
+            return null;
+        }
+    },
+
     _getWorkorderFromProductionByCurrentWorkcenter() {
         const workcenterId = this._getCurrentWorkcenterId();
         const workorders = this.props?.production?.data?.workorder_ids?.records || [];
@@ -405,11 +556,26 @@ patch(StockMove.prototype, {
     },
 
     async _resolveWorkorderId(moveId) {
+        const currentWorkcenterId = this._getCurrentWorkcenterId();
         const workorderIdFromProps = this._getWorkorderIdFromProps();
         if (workorderIdFromProps) {
-            return workorderIdFromProps;
+            if (!currentWorkcenterId) {
+                return workorderIdFromProps;
+            }
+            try {
+                const [workorderData] = await this.orm.read(
+                    "mrp.workorder",
+                    [workorderIdFromProps],
+                    ["workcenter_id"]
+                );
+                const workorderWorkcenterId = workorderData?.workcenter_id?.[0];
+                if (workorderWorkcenterId === currentWorkcenterId) {
+                    return workorderIdFromProps;
+                }
+            } catch (_error) {
+                // If the lightweight validation fails, fall back to explicit resolution below.
+            }
         }
-        const currentWorkcenterId = this._getCurrentWorkcenterId();
         return await this.orm.call("mrp.workorder", "resolve_workorder_for_move", [
             moveId,
             currentWorkcenterId || false,
@@ -440,10 +606,14 @@ patch(StockMove.prototype, {
             return;
         }
 
+        const grouped = await this._isGroupedWorkcenter(workorderId);
+        const groupedArg = grouped === true ? true : null;
+
         if (action === "start") {
             const unlocked = await this.orm.call("mrp.workorder", "check_move_unlocked", [
                 workorderId,
                 moveId,
+                groupedArg,
             ]);
             if (!unlocked) {
                 if (!options.silent) {
@@ -463,10 +633,21 @@ patch(StockMove.prototype, {
                 : action === "pause"
                 ? "action_pause_piece_time"
                 : "action_stop_piece_time";
-        await this.orm.call("mrp.workorder", method, [workorderId, moveId]);
+        await this.orm.call("mrp.workorder", method, [workorderId, moveId, groupedArg]);
         await this._refreshPieceState();
-        if (typeof window !== "undefined") {
-            window.dispatchEvent(new CustomEvent(PIECE_STATE_REFRESH_EVENT));
+        const groupingField = groupedArg ? await this._resolveGroupingField(workorderId) : false;
+        const groupValue = groupingField ? this.props.record?.data?.[groupingField] : false;
+        if (groupedArg && groupingField && groupValue) {
+            this._dispatchPieceStateRefresh({
+                scope: "grouped",
+                action,
+                sourceMoveId: moveId,
+                workcenterId: this._getCurrentWorkcenterId(),
+                groupingField,
+                groupValue,
+            });
+        } else {
+            this._dispatchPieceStateRefresh();
         }
     },
 
@@ -484,6 +665,90 @@ patch(StockMove.prototype, {
         }
         await this._refreshPieceState();
         await this._handlePieceAction("pause", { silent: true, skipIfNotWorking: true });
+    },
+
+    _normalizeM2OValue(value) {
+        if (!value) {
+            return false;
+        }
+        if (Array.isArray(value)) {
+            return {
+                id: value[0],
+                resId: value[0],
+                display_name: value[1],
+            };
+        }
+        if (typeof value === "number") {
+            return {
+                id: value,
+                resId: value,
+                display_name: "",
+            };
+        }
+        return {
+            id: value.id || value.resId,
+            resId: value.resId || value.id,
+            display_name: value.display_name || value.data?.display_name || "",
+        };
+    },
+
+    async _refreshComponentData(moveId) {
+        const [moveData] = await this.orm.read("stock.move", [moveId], [
+            "product_id",
+            "alternative_product_id",
+        ]);
+        if (!moveData) {
+            return;
+        }
+        this.props.record.data.product_id = this._normalizeM2OValue(moveData.product_id);
+        this.props.record.data.alternative_product_id = this._normalizeM2OValue(
+            moveData.alternative_product_id
+        );
+    },
+
+    async _runComponentSwapAction(methodName, successMessage) {
+        const moveId = this.props.record?.resId || this.props.record?.data?.id;
+        if (!moveId) {
+            this.notification.add(_t("No se pudo identificar el componente."), {
+                type: "warning",
+            });
+            return;
+        }
+        await this.orm.call("stock.move", methodName, [[moveId]]);
+        await this._refreshComponentData(moveId);
+        if (successMessage) {
+            this.notification.add(successMessage, {
+                type: "success",
+            });
+        }
+    },
+
+    async onUseAlternativeComponent(ev) {
+        ev.stopPropagation();
+        if (!this.props.record?.data?.is_component_swap_allowed) {
+            this.notification.add(_t("No tienes permisos para intercambiar componentes."), {
+                type: "warning",
+            });
+            return;
+        }
+        await this._runComponentSwapAction(
+            "action_use_alternative_component",
+            _t("Componente alternativo aplicado.")
+        );
+    },
+
+    async onRestoreOriginalComponent(ev) {
+        ev.stopPropagation();
+        if (!this.props.record?.data?.is_component_swap_allowed) {
+            this.notification.add(_t("No tienes permisos para intercambiar componentes."), {
+                type: "warning",
+            });
+            return;
+        }
+        await this._runComponentSwapAction(
+            "action_restore_original_component",
+            _t("Componente original restaurado.")
+        );
     },
 
     async onStartPiece(ev) {

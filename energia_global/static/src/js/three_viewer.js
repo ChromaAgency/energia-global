@@ -23,6 +23,16 @@ function isImageFilename(filename) {
     return IMAGE_EXTENSIONS.has(parts.pop().toLowerCase());
 }
 
+function buildModelDownloadUrl(url) {
+    if (!url) {
+        return null;
+    }
+    if (!url.includes("download=")) {
+        return `${url}${url.includes("?") ? "&" : "?"}download=true`;
+    }
+    return url.replace(/([?&]download=)(true|false)/i, "$1true");
+}
+
 
 
 export class ThreeJSViewer extends Component {
@@ -822,6 +832,28 @@ export class ThreeJSDialog extends Component {
             return this.props.modelUrl || null;
         }
         return null;
+    }
+
+    get downloadUrl() {
+        if (!this.has3d) {
+            return null;
+        }
+        if (this.props.modelUrl && !isImageFilename(this.props.filename)) {
+            return buildModelDownloadUrl(this.props.modelUrl);
+        }
+        if (this.props.base64Data && !this._isBase64Image()) {
+            return this.props.base64Data.startsWith("data:")
+                ? this.props.base64Data
+                : `data:application/octet-stream;base64,${this.props.base64Data}`;
+        }
+        return null;
+    }
+
+    get downloadFilename() {
+        if (this.props.filename && !isImageFilename(this.props.filename)) {
+            return this.props.filename;
+        }
+        return "plano_3d.glb";
     }
 
     setView(view) {

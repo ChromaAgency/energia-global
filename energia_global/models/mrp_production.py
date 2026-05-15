@@ -3,6 +3,36 @@
 from odoo import api, fields, models
 
 
+class MrpProductionComponentSummary(models.Model):
+    _name = "mrp.production.component.summary"
+    _description = "MRP Production Component Summary"
+    _order = "production_id, product_id"
+
+    production_id = fields.Many2one(
+        "mrp.production",
+        required=True,
+        ondelete="cascade",
+        index=True,
+    )
+    product_id = fields.Many2one(
+        "product.product",
+        required=True,
+        readonly=True,
+        string="Componente",
+    )
+    uom_id = fields.Many2one(
+        "uom.uom",
+        required=True,
+        readonly=True,
+        string="UdM",
+    )
+    required_qty = fields.Float(
+        string="Cantidad Requerida",
+        digits="Product Unit of Measure",
+        readonly=True,
+    )
+
+
 class MrpProduction(models.Model):
     _inherit = "mrp.production"
 
@@ -23,6 +53,32 @@ class MrpProduction(models.Model):
         string="All CNC Done",
         compute="_compute_cnc_progress",
     )
+    component_total_planned_qty = fields.Float(
+        string="Components Planned",
+        compute="_compute_component_totals",
+        readonly=True,
+    )
+    component_total_done_qty = fields.Float(
+        string="Components Done",
+        compute="_compute_component_totals",
+        readonly=True,
+    )
+    component_total_remaining_qty = fields.Float(
+        string="Components Remaining",
+        compute="_compute_component_totals",
+        readonly=True,
+    )
+    component_total_progress_pct = fields.Float(
+        string="Components Progress (%)",
+        compute="_compute_component_totals",
+        readonly=True,
+    )
+    component_summary_line_ids = fields.One2many(
+        "mrp.production.component.summary",
+        "production_id",
+        string="Sumatoria de Componentes",
+        readonly=True,
+    )
 
     @api.depends("cnc_tracking_ids", "cnc_tracking_ids.state")
     def _compute_cnc_progress(self):
@@ -32,6 +88,48 @@ class MrpProduction(models.Model):
             production.cnc_tracking_total = total
             production.cnc_tracking_done = done
             production.all_cnc_done = bool(total) and total == done
+
+    @api.depends("move_raw_ids", "move_raw_ids.product_uom_qty", "move_raw_ids.state")
+    def _compute_component_totals(self):
+        production_by_move = {}
+        move_ids = []
+        for production in self:
+            moves = production.move_raw_ids.filtered(lambda move: move.state != "cancel")
+            production_by_move[production.id] = moves
+            move_ids.extend(moves.ids)
+
+        done_counts = {}
+        if move_ids:
+            grouped_done = self.env["mrp.workcenter.productivity"].read_group(
+                [("move_id", "in", move_ids), ("piece_state", "=", "done")],
+                ["move_id"],
+                ["move_id"],
+            )
+            done_counts = {
+                row["move_id"][0]: row.get("move_id_count", 0)
+                for row in grouped_done
+                if row.get("move_id")
+            }
+
+        for production in self:
+            planned_total = 0.0
+            done_total = 0.0
+            for move in production_by_move.get(production.id, self.env["stock.move"]):
+                target = max(move.product_uom_qty or 0.0, 0.0)
+                done_for_move = float(done_counts.get(move.id, 0))
+                planned_total += target
+                done_total += min(done_for_move, target) if target else done_for_move
+
+            remaining_total = max(planned_total - done_total, 0.0)
+            if planned_total:
+                progress = done_total / planned_total * 100.0
+            else:
+                progress = 100.0 if done_total else 0.0
+
+            production.component_total_planned_qty = planned_total
+            production.component_total_done_qty = done_total
+            production.component_total_remaining_qty = remaining_total
+            production.component_total_progress_pct = min(progress, 100.0)
 
     def _sync_cnc_tracking_from_bom(self):
         tracking_model = self.env["mrp.cnc.tracking"]
@@ -57,16 +155,59 @@ class MrpProduction(models.Model):
                 ]
             )
 
+    def _build_component_summary_map(self):
+        self.ensure_one()
+        summary = {}
+        moves = self.move_raw_ids.filtered(
+            lambda move: move.state != "cancel" and move.product_id
+        )
+        for move in moves:
+            product = move.product_id
+            target_uom = product.uom_id
+            move_uom = move.product_uom or target_uom
+            qty = move_uom._compute_quantity(move.product_uom_qty or 0.0, target_uom)
+            values = summary.setdefault(
+                product.id,
+                {
+                    "product_id": product.id,
+                    "uom_id": target_uom.id,
+                    "required_qty": 0.0,
+                },
+            )
+            values["required_qty"] += qty
+        return summary
+
+    def _sync_component_summary_lines(self):
+        summary_model = self.env["mrp.production.component.summary"].sudo()
+        for production in self:
+            summary_by_product = production._build_component_summary_map()
+            summary_model.search([("production_id", "=", production.id)]).unlink()
+            if summary_by_product:
+                summary_model.create(
+                    [
+                        {
+                            "production_id": production.id,
+                            "product_id": values["product_id"],
+                            "uom_id": values["uom_id"],
+                            "required_qty": values["required_qty"],
+                        }
+                        for values in summary_by_product.values()
+                    ]
+                )
+
     @api.model_create_multi
     def create(self, vals_list):
         productions = super().create(vals_list)
         productions._sync_cnc_tracking_from_bom()
+        productions._sync_component_summary_lines()
         return productions
 
     def write(self, vals):
         result = super().write(vals)
         if "bom_id" in vals:
             self._sync_cnc_tracking_from_bom()
+        if set(vals) & {"bom_id", "product_qty", "move_raw_ids"}:
+            self._sync_component_summary_lines()
         return result
 
     def _get_laser_candidates(self):

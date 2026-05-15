@@ -8,6 +8,12 @@ class MrpProduction(models.Model):
 class MrpBomLine(models.Model):
 	_inherit = "mrp.bom.line"
 
+	visual_intermediate_product_id = fields.Many2one(
+		"product.product",
+		string="Producto Intermedio (Visual)",
+		help="Campo informativo para mostrar el producto intermedio a producir en taller.",
+	)
+
 	operation_ids = fields.Many2many(
 		"mrp.routing.workcenter",
 		"mrp_bom_line_operation_rel",

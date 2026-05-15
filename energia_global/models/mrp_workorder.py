@@ -128,10 +128,12 @@ class MrpWorkorder(models.Model):
         grouping_field = self.workcenter_id.grouping_field
         if grouping_field:
             return grouping_field
-        if move.cnc_number:
-            return "cnc_number"
-        if move.weld_group:
-            return "weld_group"
+        if self.workcenter_id.behavior_type == "grouped":
+            raise UserError(
+                _(
+                    "No se ha configurado el campo de agrupación para este centro de trabajo."
+                )
+            )
         return False
 
     def _get_move_related_operations(self, move):
@@ -158,6 +160,15 @@ class MrpWorkorder(models.Model):
             return True
         return self.operation_id in related_operations
 
+    def _is_move_for_current_workcenter(self, move):
+        self.ensure_one()
+        if not self.workcenter_id:
+            return self._is_move_for_current_operation(move)
+        related_workcenters = move.related_workcenter_ids
+        if related_workcenters:
+            return self.workcenter_id in related_workcenters
+        return self._is_move_for_current_operation(move)
+
     def _is_move_related_to_workorder(self, move, workorder):
         if not workorder.operation_id:
             return True
@@ -170,25 +181,17 @@ class MrpWorkorder(models.Model):
         self.ensure_one()
         grouping_field = self._resolve_grouping_field(move)
         if not grouping_field:
-            raise UserError(
-                _(
-                    "No se ha configurado el campo de agrupación para este centro de trabajo."
-                )
-            )
+            return move
         group_value = getattr(move, grouping_field)
         if not group_value:
-            raise UserError(
-                _(
-                    "La pieza seleccionada no tiene valor para el campo de agrupación."
-                )
-            )
+            return move
         moves = self.production_id.move_raw_ids.filtered(
             lambda component: getattr(component, grouping_field) == group_value
-            and self._is_move_for_current_operation(component)
+            and self._is_move_for_current_workcenter(component)
         )
         return moves or move
 
-    def check_move_unlocked(self, move_id):
+    def check_move_unlocked(self, move_id, grouped=None):
         self.ensure_one()
         move = self.env["stock.move"].browse(move_id).exists()
         if not move:
@@ -219,14 +222,23 @@ class MrpWorkorder(models.Model):
 
     def _get_moves_for_action(self, move, grouped=None):
         self.ensure_one()
+        use_grouped = self.workcenter_id.behavior_type == "grouped"
+        if grouped is True:
+            use_grouped = True
+        if use_grouped:
+            if not self._is_move_for_current_workcenter(move):
+                raise UserError(
+                    _(
+                        "La pieza seleccionada no está relacionada con el centro de trabajo actual."
+                    )
+                )
+            return self._get_grouped_moves(move)
         if not self._is_move_for_current_operation(move):
             raise UserError(
                 _(
                     "La pieza seleccionada no está relacionada con la operación actual."
                 )
             )
-        if self.workcenter_id.behavior_type == "grouped":
-            return self._get_grouped_moves(move)
         return move
 
     def _get_default_loss_id(self):
@@ -347,7 +359,11 @@ class MrpWorkorder(models.Model):
         moves = self._get_moves_for_action(move, grouped)
         self._lock_moves_for_timer(moves)
         self._ensure_no_active_timer_in_other_workorders(moves)
-        locked_moves = moves.filtered(lambda component: not self._is_move_unlocked(component))
+        # In grouped mode we validate the selected piece and then start the full group together.
+        moves_to_validate = move if len(moves) > 1 else moves
+        locked_moves = moves_to_validate.filtered(
+            lambda component: not self._is_move_unlocked(component)
+        )
         if locked_moves:
             raise UserError(
                 _(
