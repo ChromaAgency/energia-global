@@ -32,19 +32,15 @@ class StockMove(models.Model):
 		readonly=True,
 		string="Related Operations",
 	)
-	alternative_product_ids = fields.Many2many(
+	bom_original_product_id = fields.Many2one(
 		"product.product",
-		compute="_compute_alternative_product_ids",
+		related="bom_line_id.product_id",
 		readonly=True,
-		string="Alternative Components",
 	)
-	alternative_product_id = fields.Many2one(
-		"product.product",
-		string="Alternative Component",
-		domain="[('id', 'in', alternative_product_ids)]",
-		compute="_compute_alternative_product_id",
+	bom_replacement_category_ids = fields.Many2many(
+		"product.category",
+		related="bom_line_id.replacement_category_ids",
 		readonly=True,
-		store=True,
 	)
 	cnc_number = fields.Char(string="CNC Number")
 	weld_group = fields.Char(string="Weld Group")
@@ -64,10 +60,6 @@ class StockMove(models.Model):
 		compute="_compute_has_render_3d",
 		store=True,
 		readonly=True,
-	)
-	is_component_swap_allowed = fields.Boolean(
-		string="Can Swap Component",
-		compute="_compute_is_component_swap_allowed",
 	)
 	component_is_finalized = fields.Boolean(
 		string="Componente Finalizado",
@@ -125,32 +117,6 @@ class StockMove(models.Model):
 		readonly=True,
 	)
 
-	@api.depends_context("uid")
-	def _compute_is_component_swap_allowed(self):
-		is_allowed = self.env.user.has_group("mrp.group_mrp_manager")
-		for move in self:
-			move.is_component_swap_allowed = is_allowed
-
-	@api.depends("bom_line_id", "bom_line_id.alternative_product_ids")
-	def _compute_alternative_product_ids(self):
-		for move in self:
-			alternatives = move.bom_line_id.alternative_product_ids
-			move.alternative_product_ids = alternatives
-
-	@api.depends("bom_line_id", "bom_line_id.alternative_product_ids", "product_id")
-	def _compute_alternative_product_id(self):
-		for move in self:
-			alternatives = move.bom_line_id.alternative_product_ids
-			if not alternatives:
-				move.alternative_product_id = False
-				continue
-			if move.product_id and move.product_id in alternatives:
-				move.alternative_product_id = move.product_id
-				continue
-			if move.alternative_product_id and move.alternative_product_id in alternatives:
-				continue
-			move.alternative_product_id = alternatives[:1]
-
 	@api.depends(
 		"operation_id",
 		"bom_line_id",
@@ -194,12 +160,6 @@ class StockMove(models.Model):
 	def _compute_has_render_3d(self):
 		for move in self:
 			move.has_render_3d = bool(move.bom_line_id.render_3d_file)
-
-	@api.onchange("alternative_product_id")
-	def _onchange_alternative_product_id(self):
-		for move in self:
-			if move.alternative_product_id:
-				move.product_id = move.alternative_product_id
 
 	def _get_required_workorders_for_completion(self):
 		self.ensure_one()
@@ -339,31 +299,6 @@ class StockMove(models.Model):
 			move.component_partial_state = state
 			move.component_partial_state_label = state_labels[state]
 
-	def _check_component_swap_permissions(self):
-		if not self.env.user.has_group("mrp.group_mrp_manager"):
-			raise UserError(
-				_("Solo los responsables de fabricación pueden intercambiar componentes alternativos.")
-			)
-
-	def _should_guard_component_changes(self):
-		return not self.env.su and not self.env.context.get("skip_component_swap_permission")
-
-	def _check_component_write_permissions(self, vals):
-		if not self._should_guard_component_changes():
-			return
-		protected_fields = {"product_id", "alternative_product_id"}
-		if not (protected_fields & set(vals.keys())):
-			return
-		moves_to_protect = self.filtered(
-			lambda move: move.raw_material_production_id and move.bom_line_id
-		)
-		if not moves_to_protect:
-			return
-		if not self.env.user.has_group("mrp.group_mrp_manager"):
-			raise UserError(
-				_("Solo los responsables de fabricación pueden modificar el componente en líneas MRP.")
-			)
-
 	def _sync_component_summary_for_productions(self, extra_productions=False):
 		productions = self.mapped("raw_material_production_id")
 		if extra_productions:
@@ -371,19 +306,51 @@ class StockMove(models.Model):
 		if productions:
 			productions.sudo()._sync_component_summary_lines()
 
+	def _validate_replacement_category_for_product(self):
+		product_model = self.env["product.product"]
+		for move in self.filtered(
+			lambda current_move: current_move.bom_line_id
+			and current_move.product_id
+			and current_move.bom_line_id.replacement_category_ids
+		):
+			if move.product_id == move.bom_line_id.product_id:
+				continue
+			is_allowed = bool(
+				product_model.search_count(
+					[
+						("id", "=", move.product_id.id),
+						(
+							"categ_id",
+							"child_of",
+							move.bom_line_id.replacement_category_ids.ids,
+						),
+					]
+				)
+			)
+			if not is_allowed:
+				raise UserError(
+					_(
+						"El componente '%s' no pertenece a una categoría de reemplazo permitida para esta línea."
+					)
+					% move.product_id.display_name
+				)
+
 	@api.model_create_multi
 	def create(self, vals_list):
 		moves = super().create(vals_list)
+		moves._validate_replacement_category_for_product()
 		moves._sync_component_summary_for_productions()
 		return moves
 
 	def write(self, vals):
-		self._check_component_write_permissions(vals)
 		summary_fields = {"raw_material_production_id", "product_id", "product_uom", "product_uom_qty", "state"}
+		validation_fields = {"product_id", "bom_line_id"}
 		previous_productions = self.env["mrp.production"]
 		if set(vals) & summary_fields:
 			previous_productions = self.mapped("raw_material_production_id")
 		result = super().write(vals)
+		if set(vals) & validation_fields:
+			self._validate_replacement_category_for_product()
 		if set(vals) & summary_fields:
 			self._sync_component_summary_for_productions(extra_productions=previous_productions)
 		return result
@@ -394,24 +361,6 @@ class StockMove(models.Model):
 		if productions:
 			productions.sudo()._sync_component_summary_lines()
 		return result
-
-	def action_use_alternative_component(self):
-		for move in self:
-			move._check_component_swap_permissions()
-			alternative = move.alternative_product_id or move.alternative_product_ids[:1]
-			if not alternative:
-				raise UserError(_("No hay componente alternativo configurado para esta línea."))
-			move.product_id = alternative
-		return True
-
-	def action_restore_original_component(self):
-		for move in self:
-			move._check_component_swap_permissions()
-			original = move.bom_line_id.product_id
-			if not original:
-				raise UserError(_("No se encontró componente original de la línea de lista de materiales."))
-			move.product_id = original
-		return True
 
 	@api.depends_context("workorder_id")
 	def _compute_is_unlocked(self):

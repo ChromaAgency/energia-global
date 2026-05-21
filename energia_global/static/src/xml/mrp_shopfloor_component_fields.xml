@@ -62,12 +62,6 @@
                         <t t-out="props.record.data.final_product_id.display_name"/>
                     </div>
                 </t>
-                <t t-if="props.record.data.alternative_product_id">
-                    <div class="text-muted small">
-                        Alternativo:
-                        <t t-out="props.record.data.alternative_product_id.display_name"/>
-                    </div>
-                </t>
                 <t t-if="props.record.data.component_operation_stage_label">
                     <div class="text-muted small mt-1">
                         Etapa: <t t-out="props.record.data.component_operation_stage_label"/>
@@ -83,26 +77,6 @@
                         <t t-foreach="props.record.data.related_workcenter_ids.records" t-as="wc" t-key="wc.id">
                             <t t-out="wc.display_name"/>
                         </t>
-                    </div>
-                </t>
-                <t t-if="props.record.data.is_component_swap_allowed">
-                    <div class="btn-group mt-1">
-                        <button
-                            type="button"
-                            class="btn btn-outline-primary btn-sm"
-                            t-if="props.record.data.alternative_product_id and (props.record.data.product_id and (props.record.data.product_id.id || props.record.data.product_id.resId)) !== (props.record.data.alternative_product_id.id || props.record.data.alternative_product_id.resId)"
-                            t-on-click="onUseAlternativeComponent"
-                        >
-                            Usar alternativo
-                        </button>
-                        <button
-                            type="button"
-                            class="btn btn-outline-secondary btn-sm"
-                            t-if="props.record.data.alternative_product_id and props.record.data.bom_line_id and (props.record.data.product_id and (props.record.data.product_id.id || props.record.data.product_id.resId)) === (props.record.data.alternative_product_id.id || props.record.data.alternative_product_id.resId)"
-                            t-on-click="onRestoreOriginalComponent"
-                        >
-                            Volver a original
-                        </button>
                     </div>
                 </t>
                 <t t-if="props.record.data.has_render_3d || props.record.data.render_3d_filename">

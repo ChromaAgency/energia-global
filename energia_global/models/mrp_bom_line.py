@@ -22,13 +22,13 @@ class MrpBomLine(models.Model):
 		string="Operations",
 		help="Operations where this component is consumed.",
 	)
-	alternative_product_ids = fields.Many2many(
-		"product.product",
-		"mrp_bom_line_alternative_product_rel",
+	replacement_category_ids = fields.Many2many(
+		"product.category",
+		"mrp_bom_line_replacement_category_rel",
 		"bom_line_id",
-		"product_id",
-		string="Alternative Components",
-		help="Components that can replace this BOM line.",
+		"category_id",
+		string="Replacement Categories",
+		help="Categories allowed to replace this BOM line component.",
 	)
 	render_3d_file = fields.Binary(
 		string="3D Render",

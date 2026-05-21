@@ -33,6 +33,12 @@ class TestMrpComponentWorkcenter(TransactionCase):
             "uom_id": cls.uom_unit.id,
         })
         cls.product = cls.product_tmpl.product_variant_id
+        cls.replacement_category = cls.env["product.category"].create({
+            "name": "Replacement Category",
+        })
+        cls.blocked_category = cls.env["product.category"].create({
+            "name": "Blocked Replacement Category",
+        })
         cls.component = cls.env["product.product"].create({
             "name": "Component 1",
             "uom_id": cls.uom_unit.id,
@@ -40,6 +46,17 @@ class TestMrpComponentWorkcenter(TransactionCase):
         cls.alt_component = cls.env["product.product"].create({
             "name": "Component 1 Alt",
             "uom_id": cls.uom_unit.id,
+            "categ_id": cls.replacement_category.id,
+        })
+        cls.category_component = cls.env["product.product"].create({
+            "name": "Component Category Alt",
+            "uom_id": cls.uom_unit.id,
+            "categ_id": cls.replacement_category.id,
+        })
+        cls.blocked_component = cls.env["product.product"].create({
+            "name": "Blocked Category Component",
+            "uom_id": cls.uom_unit.id,
+            "categ_id": cls.blocked_category.id,
         })
 
         cls.bom = cls.env["mrp.bom"].create({
@@ -97,7 +114,6 @@ class TestMrpComponentWorkcenter(TransactionCase):
             "product_qty": component_qty,
             "product_uom_id": self.uom_unit.id,
             "operation_id": self.operation_a.id,
-            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
         })
         production = self.env["mrp.production"].create({
             "name": "MO Component Progress",
@@ -161,59 +177,13 @@ class TestMrpComponentWorkcenter(TransactionCase):
         move._compute_related_operation_ids()
         self.assertIn(self.operation_a, move.related_operation_ids)
 
-    def test_alternative_components_on_move(self):
-        bom_line = self.env["mrp.bom.line"].create({
-            "bom_id": self.bom.id,
-            "product_id": self.component.id,
-            "product_qty": 1.0,
-            "product_uom_id": self.uom_unit.id,
-            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
-        })
-        move = self._create_move(bom_line_id=bom_line.id)
-        move._compute_alternative_product_ids()
-        move._compute_alternative_product_id()
-        self.assertIn(self.alt_component, move.alternative_product_ids)
-        move.alternative_product_id = self.alt_component
-        move._onchange_alternative_product_id()
-        self.assertEqual(move.product_id, self.alt_component)
-
-    def test_manager_can_swap_and_restore_component(self):
-        bom_line = self.env["mrp.bom.line"].create({
-            "bom_id": self.bom.id,
-            "product_id": self.component.id,
-            "product_qty": 1.0,
-            "product_uom_id": self.uom_unit.id,
-            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
-        })
-        move = self._create_move(bom_line_id=bom_line.id)
-
-        move.action_use_alternative_component()
-        self.assertEqual(move.product_id, self.alt_component)
-
-        move.action_restore_original_component()
-        self.assertEqual(move.product_id, self.component)
-
-    def test_operator_cannot_swap_component(self):
-        bom_line = self.env["mrp.bom.line"].create({
-            "bom_id": self.bom.id,
-            "product_id": self.component.id,
-            "product_qty": 1.0,
-            "product_uom_id": self.uom_unit.id,
-            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
-        })
-        move = self._create_move(bom_line_id=bom_line.id)
-
-        with self.assertRaises(UserError):
-            move.with_user(self.operator_user).action_use_alternative_component()
-
-    def test_operator_cannot_write_component_directly(self):
+    def test_operator_can_write_component_directly(self):
         bom_line = self.env["mrp.bom.line"].create({
             "bom_id": self.bom.id,
             "product_id": self.component.id,
             "product_qty": 1.0,
             "product_uom_id": self.uom_unit.id,
             "operation_id": self.operation_a.id,
-            "alternative_product_ids": [(6, 0, [self.alt_component.id])],
         })
         production = self.env["mrp.production"].create({
             "name": "MO Write Guard",
@@ -229,8 +199,37 @@ class TestMrpComponentWorkcenter(TransactionCase):
         move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
         self.assertTrue(move)
 
+        move.with_user(self.operator_user).write({"product_id": self.alt_component.id})
+        self.assertEqual(move.product_id, self.alt_component)
+
+    def test_product_must_belong_to_replacement_category(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_id": self.operation_a.id,
+            "replacement_category_ids": [(6, 0, [self.replacement_category.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Replacement Category Validation",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        self.assertTrue(move)
+
+        move.with_user(self.operator_user).write({"product_id": self.category_component.id})
+        self.assertEqual(move.product_id, self.category_component)
+
         with self.assertRaises(UserError):
-            move.with_user(self.operator_user).write({"product_id": self.alt_component.id})
+            move.with_user(self.operator_user).write({"product_id": self.blocked_component.id})
 
     def test_component_progress_and_production_totals(self):
         production, workorder, move = self._create_production_with_component_move(component_qty=2.0)
