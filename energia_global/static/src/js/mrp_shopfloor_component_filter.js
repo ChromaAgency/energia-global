@@ -32,6 +32,7 @@ patch(MrpDisplayAction.prototype, {
         ensureField("stock.move", "alternative_product_id");
         ensureField("stock.move", "final_product_id");
         ensureField("stock.move", "is_component_swap_allowed");
+        ensureField("stock.move", "component_operation_stage_label");
         ensureField("stock.move", "component_finalization_state_label");
         ensureField("stock.move", "cnc_number");
         

@@ -88,6 +88,11 @@ class StockMove(models.Model):
 		compute="_compute_component_finalization_state",
 		readonly=True,
 	)
+	component_operation_stage_label = fields.Char(
+		string="Etapa de Operación",
+		compute="_compute_component_finalization_state",
+		readonly=True,
+	)
 	component_piece_total = fields.Float(
 		string="Component Target",
 		compute="_compute_component_progress",
@@ -227,31 +232,49 @@ class StockMove(models.Model):
 		}
 		productivity_model = self.env["mrp.workcenter.productivity"]
 		for move in self:
-			required_workorders = move._get_required_workorders_for_completion()
+			required_workorders = move._get_required_workorders_for_completion().sorted(
+				key=lambda workorder: (workorder.sequence, workorder.id)
+			)
 			is_done = False
+			stage_label = _("Sin operaciones")
 			if required_workorders:
-				is_done = all(
-					bool(
-						productivity_model.search_count(
-							[
-								("move_id", "=", move.id),
-								("workorder_id", "=", workorder.id),
-								("piece_state", "=", "done"),
-							]
-						)
-					)
-					for workorder in required_workorders
+				done_rows = productivity_model.search(
+					[
+						("move_id", "=", move.id),
+						("workorder_id", "in", required_workorders.ids),
+						("piece_state", "=", "done"),
+					]
 				)
+				done_workorder_ids = set(done_rows.mapped("workorder_id").ids)
+				is_done = set(required_workorders.ids).issubset(done_workorder_ids)
+
+				completed_steps = 0
+				for workorder in required_workorders:
+					if workorder.id not in done_workorder_ids:
+						break
+					completed_steps += 1
+
+				total_steps = len(required_workorders)
+				if is_done:
+					stage_label = _("Etapa %s/%s - Finalizado") % (total_steps, total_steps)
+				else:
+					next_index = min(completed_steps + 1, total_steps)
+					next_workorder = required_workorders[completed_steps] if completed_steps < total_steps else required_workorders[-1]
+					next_operation_name = next_workorder.operation_id.display_name or next_workorder.display_name
+					stage_label = _("Etapa %s/%s - %s") % (next_index, total_steps, next_operation_name)
 			else:
 				is_done = bool(
 					productivity_model.search_count(
 						[("move_id", "=", move.id), ("piece_state", "=", "done")]
 					)
 				)
+				if is_done:
+					stage_label = _("Etapa 1/1 - Finalizado")
 			state = "done" if is_done else "pending"
 			move.component_is_finalized = is_done
 			move.component_finalization_state = state
 			move.component_finalization_state_label = state_labels[state]
+			move.component_operation_stage_label = stage_label
 
 	def _get_component_progress_counts(self):
 		counts = {

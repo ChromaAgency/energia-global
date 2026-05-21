@@ -237,6 +237,7 @@ class TestMrpComponentWorkcenter(TransactionCase):
 
         self.assertFalse(move.component_is_finalized)
         self.assertEqual(move.component_finalization_state, "pending")
+        self.assertIn("Etapa 1/1", move.component_operation_stage_label)
         self.assertEqual(production.component_total_planned_qty, 2.0)
         self.assertEqual(production.component_total_done_qty, 0.0)
 
@@ -245,6 +246,7 @@ class TestMrpComponentWorkcenter(TransactionCase):
 
         self.assertTrue(move.component_is_finalized)
         self.assertEqual(move.component_finalization_state, "done")
+        self.assertIn("Finalizado", move.component_operation_stage_label)
         self.assertEqual(production.component_total_done_qty, 1.0)
         self.assertEqual(production.component_total_remaining_qty, 1.0)
 
@@ -262,12 +264,14 @@ class TestMrpComponentWorkcenter(TransactionCase):
 
         self.assertFalse(move.component_is_finalized)
         self.assertEqual(move.component_finalization_state, "pending")
+        self.assertIn("Etapa 1/1", move.component_operation_stage_label)
 
         workorder.action_start_piece_time(move.id)
         workorder.action_stop_piece_time(move.id)
 
         self.assertTrue(move.component_is_finalized)
         self.assertEqual(move.component_finalization_state, "done")
+        self.assertIn("Finalizado", move.component_operation_stage_label)
         self.assertEqual(production.component_total_planned_qty, 0.0)
         self.assertEqual(production.component_total_done_qty, 1.0)
         self.assertEqual(production.component_total_progress_pct, 100.0)
@@ -304,16 +308,19 @@ class TestMrpComponentWorkcenter(TransactionCase):
         self.assertTrue(workorder_a)
         self.assertTrue(workorder_b)
         self.assertFalse(move.component_is_finalized)
+        self.assertIn("Etapa 1/2", move.component_operation_stage_label)
 
         workorder_a.action_start_piece_time(move.id)
         workorder_a.action_stop_piece_time(move.id)
         self.assertFalse(move.component_is_finalized)
         self.assertEqual(move.component_finalization_state, "pending")
+        self.assertIn("Etapa 2/2", move.component_operation_stage_label)
 
         workorder_b.action_start_piece_time(move.id)
         workorder_b.action_stop_piece_time(move.id)
         self.assertTrue(move.component_is_finalized)
         self.assertEqual(move.component_finalization_state, "done")
+        self.assertIn("Finalizado", move.component_operation_stage_label)
 
     def test_component_summary_groups_required_qty_by_product(self):
         self.env["mrp.bom.line"].create({

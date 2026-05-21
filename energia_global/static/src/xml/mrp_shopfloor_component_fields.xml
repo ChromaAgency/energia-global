@@ -68,6 +68,11 @@
                         <t t-out="props.record.data.alternative_product_id.display_name"/>
                     </div>
                 </t>
+                <t t-if="props.record.data.component_operation_stage_label">
+                    <div class="text-muted small mt-1">
+                        Etapa: <t t-out="props.record.data.component_operation_stage_label"/>
+                    </div>
+                </t>
                 <t t-if="props.record.data.component_finalization_state_label">
                     <div class="text-muted small mt-1">
                         Estado componente: <t t-out="props.record.data.component_finalization_state_label"/>
