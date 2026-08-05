@@ -269,12 +269,12 @@ class ItecApiController(http.Controller):
         )
         for key in passthrough:
             if key in payload:
-                self._set_if_field(data, key, payload[key], model_fields)
+                self._set_if_field(data, key, payload.get(key), model_fields)
 
         # --- Booleanos ---
         for key in ("sale_ok", "purchase_ok"):
             if key in payload:
-                value = _to_bool(payload[key])
+                value = _to_bool(payload.get(key))
                 if value is None:
                     return None, _error(
                         f"El valor de '{key}' debe ser booleano.", status=400
@@ -442,7 +442,6 @@ class ItecApiController(http.Controller):
                 "product_max_qty": 0,
                 # En Odoo 19 `qty_multiple=0` puede disparar ValueError
                 # dependiendo de validaciones del modelo de orderpoint.
-                "qty_multiple": 1,
                 "warehouse_id": warehouse.id,
                 "route_id": route.id,
                 "trigger": "auto",
@@ -473,26 +472,16 @@ class ItecApiController(http.Controller):
             return _error(
                 "El parámetro 'name' es requerido.", status=400
             )
-        if not payload.get("default_code"):
-            return _error(
-                "El parámetro 'default_code' es requerido.", status=400
-            )
-
         payload = self._normalize_solidworks_payload(payload)
 
         env = self._env_as_api_user()
         ProductTemplate = env["product.template"].sudo()
         model_fields = ProductTemplate._fields
-
-        requested_code = str(payload["default_code"]).strip()
-        if not requested_code:
-            return _error(
-                "El parámetro 'default_code' no puede estar vacío.", status=400
-            )
+        requested_code = payload.get('default_code')
         existing = ProductTemplate.search(
             [("default_code", "=", requested_code)], limit=1
         )
-        if existing:
+        if requested_code and existing:
             return _json_response(
                 {
                     "status": "Conflict",
