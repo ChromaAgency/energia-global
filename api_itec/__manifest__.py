@@ -7,7 +7,7 @@
     "author": "Chroma Agency",
     "website": "https://chroma.agency",
     "category": "Tools",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "license": "LGPL-3",
     "depends": ["base", "product", "mrp", "stock",],
     "data": [

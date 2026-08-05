@@ -222,6 +222,18 @@ class ItecApiController(http.Controller):
         if key in model_fields:
             target[key] = value
 
+    def _normalize_solidworks_payload(self, payload):
+        """Aplica aliases mínimos para compatibilidad con gui.py.
+
+        Regla actual:
+        - ``surface`` -> ``superficie`` (solo si ``superficie`` no está presente).
+        """
+        if not isinstance(payload, dict):
+            return {}
+        if "surface" in payload and "superficie" not in payload:
+            payload["superficie"] = payload["surface"]
+        return payload
+
     def _merge_image_1920(self, payload, data, model_fields):
         """Decodifica ``image_1920`` (Base64 o ``data:...;base64,...``) y lo
         deja en ``data``. Devuelve una respuesta HTTP de error si la
@@ -428,7 +440,9 @@ class ItecApiController(http.Controller):
                 "location_id": warehouse.lot_stock_id.id,
                 "product_min_qty": 0,
                 "product_max_qty": 0,
-                "qty_multiple": 0,
+                # En Odoo 19 `qty_multiple=0` puede disparar ValueError
+                # dependiendo de validaciones del modelo de orderpoint.
+                "qty_multiple": 1,
                 "warehouse_id": warehouse.id,
                 "route_id": route.id,
                 "trigger": "auto",
@@ -451,33 +465,53 @@ class ItecApiController(http.Controller):
 
     # ---------------- Lógica reusable de create / update ----------------
     def _do_create(self, payload):
+        if not isinstance(payload, dict):
+            return _error(
+                "El body debe ser un objeto JSON al primer nivel.", status=400
+            )
         if not payload.get("name"):
             return _error(
                 "El parámetro 'name' es requerido.", status=400
             )
+        if not payload.get("default_code"):
+            return _error(
+                "El parámetro 'default_code' es requerido.", status=400
+            )
+
+        payload = self._normalize_solidworks_payload(payload)
 
         env = self._env_as_api_user()
         ProductTemplate = env["product.template"].sudo()
         model_fields = ProductTemplate._fields
 
-        sequence = (
-            env["ir.sequence"]
-            .sudo()
-            .search([("code", "=", "itec.code")], limit=1)
-        )
-        if not sequence:
+        requested_code = str(payload["default_code"]).strip()
+        if not requested_code:
             return _error(
-                "No existe la secuencia 'itec.code' en el sistema. "
-                "Reinstalá el módulo o creala manualmente.",
-                status=500,
+                "El parámetro 'default_code' no puede estar vacío.", status=400
+            )
+        existing = ProductTemplate.search(
+            [("default_code", "=", requested_code)], limit=1
+        )
+        if existing:
+            return _json_response(
+                {
+                    "status": "Conflict",
+                    "message": "Ya existe un producto con ese default_code.",
+                    "default_code": existing.default_code,
+                    "name": existing.name,
+                    "id": existing.id,
+                },
+                status=409,
             )
 
         data, err = self._build_create_data(payload, model_fields)
         if err is not None:
             return err
+        if data is None:
+            return _error("No se pudo construir el producto.", status=400)
 
-        data["name"] = payload["name"]
-        data["default_code"] = sequence._next()
+        data["name"] = payload.get("name")
+        data["default_code"] = requested_code
 
         try:
             product = ProductTemplate.create(data)
@@ -516,6 +550,11 @@ class ItecApiController(http.Controller):
             return _error(
                 "El parámetro 'default_code' es requerido.", status=400
             )
+        if not isinstance(payload, dict):
+            return _error(
+                "El body debe ser un objeto JSON al primer nivel.", status=400
+            )
+        payload = self._normalize_solidworks_payload(payload)
         env = self._env_as_api_user()
         ProductTemplate = env["product.template"].sudo()
         product = ProductTemplate.search(
@@ -530,6 +569,8 @@ class ItecApiController(http.Controller):
         data, err = self._build_update_data(payload, ProductTemplate._fields)
         if err is not None:
             return err
+        if data is None:
+            return _error("No se pudo construir la actualización.", status=400)
 
         try:
             product.write(data)
@@ -565,6 +606,8 @@ class ItecApiController(http.Controller):
         payload, err = _load_payload()
         if err is not None:
             return err
+        if payload is None:
+            return _error("Body JSON inválido.", status=400)
         return self._do_create(payload)
 
     @http.route(
@@ -581,6 +624,8 @@ class ItecApiController(http.Controller):
         payload, err = _load_payload()
         if err is not None:
             return err
+        if payload is None:
+            return _error("Body JSON inválido.", status=400)
         return self._do_update(default_code, payload)
 
     @http.route(
@@ -642,12 +687,13 @@ class ItecApiController(http.Controller):
     @api_key_required
     def legacy_create_product(self, **_):
         _logger.warning(
-            "Itec API: endpoint LEGACY /itec-api/create/product. "
-            "Migrar a /api/v1/itec/products."
+            "Itec API: usando endpoint /itec-api/create/product (compatibilidad SolidWorks)."
         )
         payload, err = _load_payload()
         if err is not None:
             return err
+        if payload is None:
+            return _error("Body JSON inválido.", status=400)
         return self._do_create(payload)
 
     @http.route(
@@ -662,11 +708,13 @@ class ItecApiController(http.Controller):
     @api_key_required
     def legacy_update_product(self, **_):
         _logger.warning(
-            "Itec API: endpoint LEGACY /itec-api/update/product. "
-            "Migrar a PATCH /api/v1/itec/products/<default_code>."
+            "Itec API: usando endpoint /itec-api/update/product (compatibilidad SolidWorks)."
         )
         payload, err = _load_payload()
         if err is not None:
             return err
+        if payload is None:
+            return _error("Body JSON inválido.", status=400)
         default_code = payload.get("default_code")
         return self._do_update(default_code, payload)
+
