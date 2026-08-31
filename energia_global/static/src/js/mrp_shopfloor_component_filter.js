@@ -4,32 +4,13 @@ import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { onMounted, onWillStart, onWillUnmount, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
-import { SearchBar } from "@web/search/search_bar/search_bar";
-import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
-import { MrpDisplaySearchBar } from "@mrp_workorder/mrp_display/search_bar";
 import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
 
 const PIECE_STATE_REFRESH_EVENT = "energia_global:piece_state_refresh";
 
 import { ThreeJSDialog } from "./three_viewer";
-
-// Official Odoo fix (opw-5902675): shop floor search bar blurred a null inputRef.el
-// on every render → TypeError: Cannot read properties of null (reading 'blur').
-patch(MrpDisplay.prototype, {
-    setup() {
-        this.env.config.disableSearchBarAutofocus = true;
-        super.setup();
-    },
-});
-
-patch(MrpDisplaySearchBar.prototype, {
-    setup() {
-        // Skip buggy enterprise onRendered that does this.inputRef.el.blur().
-        SearchBar.prototype.setup.call(this);
-    },
-});
 
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {
@@ -123,7 +104,12 @@ patch(MrpDisplayRecord.prototype, {
         const workcenterId = this.props.record.data.workcenter_id?.id;
         return moves.filter((move) => {
             const relatedWorkcenters = this._getRelatedWorkcenterIds(move);
-            if (!relatedWorkcenters.length || !workcenterId) {
+            // Only show components mapped to workcenters; unmapped ones appear
+            // "Bloqueado por" the previous WO forever (no piece timer there).
+            if (!relatedWorkcenters.length) {
+                return false;
+            }
+            if (!workcenterId) {
                 return true;
             }
             return relatedWorkcenters.includes(workcenterId);
@@ -279,6 +265,23 @@ patch(MrpDisplayRecord.prototype, {
         ev.stopPropagation();
         await this._runCncAction(record.id, "action_finish");
     },
+
+    subRecordProps(subRecord) {
+        const props = super.subRecordProps(subRecord);
+        // Moves come from production.move_raw_ids, so record.model.root is the MO.
+        // Pass the WO card explicitly so piece timers resolve the correct workorder.
+        if (this.props.record?.resModel === "mrp.workorder") {
+            props.workorder = this.props.record;
+        }
+        return props;
+    },
+});
+
+patch(StockMove, {
+    props: {
+        ...StockMove.props,
+        workorder: { type: Object, optional: true },
+    },
 });
 
 patch(StockMove.prototype, {
@@ -291,7 +294,7 @@ patch(StockMove.prototype, {
         this._workcenterGroupingFieldCache = {};
         this.uiState = useState({
             pieceState: "idle",
-            isUnlocked: false,
+            isUnlocked: true,
             blockedByText: false,
             viewerOpenCount: 0,
         });
@@ -400,14 +403,14 @@ patch(StockMove.prototype, {
             if (!moveId) {
                 this.uiState.pieceState = "idle";
                 this.uiState.isUnlocked = false;
-                this.uiState.blockedByText = false;
+                this.uiState.blockedByText = _t("No se pudo identificar el componente.");
                 return;
             }
             const workorderId = await this._resolveWorkorderId(moveId);
             if (!workorderId) {
                 this.uiState.pieceState = "idle";
                 this.uiState.isUnlocked = false;
-                this.uiState.blockedByText = false;
+                this.uiState.blockedByText = _t("No se pudo identificar la orden de trabajo.");
                 return;
             }
             const status = await this.orm.call("mrp.workorder", "get_move_timer_status", [
@@ -417,19 +420,25 @@ patch(StockMove.prototype, {
             this.uiState.pieceState = status?.piece_state || "idle";
             this.uiState.isUnlocked = Boolean(status?.is_unlocked);
             this.uiState.blockedByText = status?.blocked_by_text || false;
+        } catch (_error) {
+            this.uiState.pieceState = "idle";
+            this.uiState.isUnlocked = false;
+            this.uiState.blockedByText = _t("No se pudo cargar el estado de la pieza.");
         } finally {
             this._refreshingState = false;
         }
     },
 
     _getWorkorderRecord() {
+        if (this.props.workorder) {
+            return this.props.workorder;
+        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder") {
             return rootRecord;
         }
         const directWorkorder = (
             this.props?.record?.data?.workorder_id ||
-            this.props.workorder ||
             this.props.workorderRecord ||
             this.props.workorder_record ||
             this.props.record?.model?.root?.data?.workorder_id
@@ -441,6 +450,14 @@ patch(StockMove.prototype, {
     },
 
     _getCurrentWorkcenterId() {
+        const workorder = this.props.workorder;
+        if (workorder?.resModel === "mrp.workorder") {
+            const workcenter = workorder.data?.workcenter_id;
+            const workcenterId = workcenter?.resId || workcenter?.id || workcenter?.data?.id;
+            if (workcenterId) {
+                return workcenterId;
+            }
+        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder") {
             const rootWorkcenter = rootRecord?.data?.workcenter_id;
@@ -458,6 +475,10 @@ patch(StockMove.prototype, {
     },
 
     _getCurrentWorkcenterRecord() {
+        const workorder = this.props.workorder;
+        if (workorder?.resModel === "mrp.workorder" && workorder?.data?.workcenter_id) {
+            return workorder.data.workcenter_id;
+        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder" && rootRecord?.data?.workcenter_id) {
             return rootRecord.data.workcenter_id;

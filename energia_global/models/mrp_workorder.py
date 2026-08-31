@@ -118,8 +118,10 @@ class MrpWorkorder(models.Model):
                 )
             )
 
+        # Only fall back to the previous WO when this move actually belongs there.
+        # Unmapped moves were getting "Bloqueado por" forever with no way to unlock.
         previous_workorder = self._get_previous_workorder()
-        if previous_workorder:
+        if previous_workorder and self._is_move_related_to_workorder(move, previous_workorder):
             return previous_workorder
         return self.env["mrp.workorder"]
 
