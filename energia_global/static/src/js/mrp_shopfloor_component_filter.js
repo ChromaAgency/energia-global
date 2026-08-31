@@ -68,6 +68,25 @@ patch(MrpDisplayRecord.prototype, {
     },
 
 
+    _getRecordKey(record) {
+        return record?.resId ?? record?.data?.id ?? record?.id;
+    },
+
+    _dedupeRecords(records) {
+        const seen = new Set();
+        return (records || []).filter((record) => {
+            const key = this._getRecordKey(record);
+            if (key == null) {
+                return false;
+            }
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    },
+
     _getRelatedWorkcenterIds(move) {
         const related = move.data.related_workcenter_ids;
         if (!related) {
@@ -93,7 +112,15 @@ patch(MrpDisplayRecord.prototype, {
     },
 
     get moves() {
-        return this._filterMovesByWorkcenter(super.moves);
+        return this._dedupeRecords(this._filterMovesByWorkcenter(super.moves));
+    },
+
+    get checks() {
+        return this._dedupeRecords(super.checks);
+    },
+
+    get byProducts() {
+        return this._dedupeRecords(super.byProducts);
     },
 
     get isWorkorderRecord() {
