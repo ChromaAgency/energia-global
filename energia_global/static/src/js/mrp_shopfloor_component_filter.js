@@ -2,7 +2,7 @@
 
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
-import { onWillStart, onWillUnmount, useState } from "@odoo/owl";
+import { onMounted, onWillStart, onWillUnmount, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
@@ -10,14 +10,8 @@ import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move
 
 const PIECE_STATE_REFRESH_EVENT = "energia_global:piece_state_refresh";
 
-import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { ThreeJSDialog } from "./three_viewer";
 
-patch(MrpDisplay.prototype, {
-    setup(){
-        super.setup();
-    }
-})
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {
         const fieldsStructure = super.fieldsStructure;
@@ -58,36 +52,6 @@ patch(MrpDisplayAction.prototype, {
     },
 });
 
-patch(StockMove.prototype, {
-    setup() {
-        super.setup();
-        this.dialog = useService("dialog");
-        this.notification = useService("notification");
-    },
-
-    openThreeDViewer(e) {
-        e.stopPropagation();
-        const record = this.props.record;
-        if (!record?.data?.has_render_3d) {
-            this.notification.add("No hay plano 3D disponible.", { type: "warning" });
-            return;
-        }
-        const resId = record.resId || record.data.id;
-        const resModel = record.resModel || "stock.move";
-        if (!resId) {
-            this.notification.add("No se pudo identificar el componente.", { type: "danger" });
-            return;
-        }
-        const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
-        this.dialog.add(ThreeJSDialog, {
-            title: "Plano",
-            modelUrl,
-            filename: record.data.render_3d_filename,
-            onOpen: () => this._handleViewerOpened(),
-            onClose: () => this._handleViewerClosed(),
-        });
-    },
-});
 patch(MrpDisplayRecord.prototype, {
     setup() {
         super.setup();
@@ -104,29 +68,32 @@ patch(MrpDisplayRecord.prototype, {
     },
 
 
+    _getRelatedWorkcenterIds(move) {
+        const related = move.data.related_workcenter_ids;
+        if (!related) {
+            return [];
+        }
+        if (related.resIds?.length) {
+            return related.resIds;
+        }
+        return (related.records || [])
+            .map((workcenter) => workcenter.resId || workcenter.id || workcenter.data?.id)
+            .filter(Boolean);
+    },
+
     _filterMovesByWorkcenter(moves) {
         const workcenterId = this.props.record.data.workcenter_id?.id;
         return moves.filter((move) => {
-            const relatedWorkcenters = move.data.related_workcenter_ids?.resIds || [];
-            if (!relatedWorkcenters.length) {
-                return false;
-            }
-            if (!workcenterId) {
+            const relatedWorkcenters = this._getRelatedWorkcenterIds(move);
+            if (!relatedWorkcenters.length || !workcenterId) {
                 return true;
             }
-            const isRelatedToCurrentWorkcenter = relatedWorkcenters.includes(workcenterId);
-            if (!isRelatedToCurrentWorkcenter) {
-                return false;
-            }
-            return true;
+            return relatedWorkcenters.includes(workcenterId);
         });
     },
 
     get moves() {
-        const productionMoves = this.props.production.data.move_raw_ids.records.filter(
-            (move) => !move.data.scrapped && move.data.check_id && !move.data.check_id.count
-        );
-        return this._filterMovesByWorkcenter(productionMoves);
+        return this._filterMovesByWorkcenter(super.moves);
     },
 
     get isWorkorderRecord() {
@@ -282,8 +249,8 @@ patch(StockMove.prototype, {
             blockedByText: false,
             viewerOpenCount: 0,
         });
-        onWillStart(async () => {
-            await this._refreshPieceState();
+        onMounted(() => {
+            this._refreshPieceState();
         });
         this._onPieceStateRefresh = (ev) => {
             this._handlePieceStateRefreshEvent(ev);
@@ -679,5 +646,28 @@ patch(StockMove.prototype, {
     async onStopPiece(ev) {
         ev.stopPropagation();
         await this._handlePieceAction("stop");
+    },
+
+    openThreeDViewer(e) {
+        e.stopPropagation();
+        const record = this.props.record;
+        if (!record?.data?.has_render_3d) {
+            this.notification.add(_t("No hay plano 3D disponible."), { type: "warning" });
+            return;
+        }
+        const resId = record.resId || record.data.id;
+        const resModel = record.resModel || "stock.move";
+        if (!resId) {
+            this.notification.add(_t("No se pudo identificar el componente."), { type: "danger" });
+            return;
+        }
+        const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
+        this.dialog.add(ThreeJSDialog, {
+            title: _t("Plano"),
+            modelUrl,
+            filename: record.data.render_3d_filename,
+            onOpen: () => this._handleViewerOpened(),
+            onClose: () => this._handleViewerClosed(),
+        });
     },
 });
