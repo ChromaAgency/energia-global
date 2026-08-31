@@ -4,13 +4,32 @@ import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { onMounted, onWillStart, onWillUnmount, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
+import { SearchBar } from "@web/search/search_bar/search_bar";
+import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
+import { MrpDisplaySearchBar } from "@mrp_workorder/mrp_display/search_bar";
 import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
 
 const PIECE_STATE_REFRESH_EVENT = "energia_global:piece_state_refresh";
 
 import { ThreeJSDialog } from "./three_viewer";
+
+// Official Odoo fix (opw-5902675): shop floor search bar blurred a null inputRef.el
+// on every render → TypeError: Cannot read properties of null (reading 'blur').
+patch(MrpDisplay.prototype, {
+    setup() {
+        this.env.config.disableSearchBarAutofocus = true;
+        super.setup();
+    },
+});
+
+patch(MrpDisplaySearchBar.prototype, {
+    setup() {
+        // Skip buggy enterprise onRendered that does this.inputRef.el.blur().
+        SearchBar.prototype.setup.call(this);
+    },
+});
 
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {

@@ -31,7 +31,6 @@
     ],
     'assets': {
         'web.assets_backend': [
-            'energia_global/static/src/js/safe_active_element.js',
             'energia_global/static/lib/three/three.min.js',
             'energia_global/static/src/js/mrp_shopfloor_component_filter.js',
             'energia_global/static/src/js/three_viewer.js',
