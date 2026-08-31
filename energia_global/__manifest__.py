@@ -30,14 +30,15 @@
         'views/mrp_production_cnc_views.xml',
     ],
     'assets': {
-        'web.assets_backend': [ 
-             'energia_global/static/lib/three/three.min.js',
+        'web.assets_backend': [
+            'energia_global/static/src/js/safe_active_element.js',
+            'energia_global/static/lib/three/three.min.js',
             'energia_global/static/src/js/mrp_shopfloor_component_filter.js',
             'energia_global/static/src/js/three_viewer.js',
             'energia_global/static/src/xml/mrp_shopfloor_component_fields.xml',
             'energia_global/static/src/xml/three_viewer_templates.xml',
-             'energia_global/static/lib/three/OrbitControls.js',
-             'energia_global/static/lib/three/GLTFLoader.js',
+            'energia_global/static/lib/three/OrbitControls.js',
+            'energia_global/static/lib/three/GLTFLoader.js',
         ],
     },
     'installable': True,
