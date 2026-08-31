@@ -69,7 +69,7 @@
 
     <menuitem id="menu_product_client_tag"
               name="Etiquetas de Cliente"
-              parent="product.menu_product_config"
+              parent="stock.menu_stock_config_settings"
               action="action_product_client_tag"
               sequence="90"/>
 
