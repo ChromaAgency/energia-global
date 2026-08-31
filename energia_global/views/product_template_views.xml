@@ -16,20 +16,11 @@
                 <field name="client_tag_ids" widget="many2many_tags"/>
             </xpath>
             <xpath expr="//notebook" position="inside">
-                <page string="Planos" name="product_planos_page">
+                <page string="Plano" name="product_plano_page">
                     <group>
                         <field name="render_3d_file" filename="render_3d_filename" widget="binary"/>
                         <field name="render_3d_filename" invisible="1"/>
                     </group>
-                    <field name="plano_ids" context="{'default_product_tmpl_id': id}">
-                        <list editable="bottom">
-                            <field name="sequence" widget="handle"/>
-                            <field name="name"/>
-                            <field name="cnc_number"/>
-                            <field name="render_3d_file" filename="render_3d_filename" widget="binary"/>
-                            <field name="render_3d_filename" column_invisible="1"/>
-                        </list>
-                    </field>
                 </page>
             </xpath>
         </field>

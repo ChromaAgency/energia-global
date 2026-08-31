@@ -24,13 +24,8 @@ class ProductTemplate(models.Model):
         string="Etiqueta de Cliente",
     )
     render_3d_file = fields.Binary(
-        string="Plano 3D principal",
+        string="Plano 3D",
         attachment=True,
-        help="Plano principal del producto. La API puede cargarlo directamente.",
+        help="Plano del producto. La API lo carga directamente; la OP lo hereda al crearse.",
     )
     render_3d_filename = fields.Char(string="Nombre de archivo del plano")
-    plano_ids = fields.One2many(
-        "product.template.plano",
-        "product_tmpl_id",
-        string="Planos adicionales",
-    )

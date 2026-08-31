@@ -165,7 +165,9 @@ class ItecApiController(http.Controller):
         return category.id if category else False
 
     def _resolve_product_tags(self, tag_value):
-        """Devuelve un comando M2M ``[(6, 0, [ids])]`` o False si nada matchea."""
+        """Devuelve comando M2M, ``False`` si no matchea, o ``[(5,0,0)]`` para limpiar."""
+        if isinstance(tag_value, (list, tuple)) and not tag_value:
+            return [(5, 0, 0)]
         if not tag_value:
             return False
         if isinstance(tag_value, str):
@@ -186,7 +188,9 @@ class ItecApiController(http.Controller):
         return [(6, 0, tags.ids)]
 
     def _resolve_client_tags(self, tag_value):
-        """Devuelve un comando M2M ``[(6, 0, [ids])]`` o False si nada matchea."""
+        """Devuelve comando M2M, ``False`` si no matchea, o ``[(5,0,0)]`` para limpiar."""
+        if isinstance(tag_value, (list, tuple)) and not tag_value:
+            return [(5, 0, 0)]
         if not tag_value:
             return False
         if isinstance(tag_value, str):
