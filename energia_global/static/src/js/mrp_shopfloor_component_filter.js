@@ -269,8 +269,11 @@ patch(MrpDisplayRecord.prototype, {
     subRecordProps(subRecord) {
         const props = super.subRecordProps(subRecord);
         // Moves come from production.move_raw_ids, so record.model.root is the MO.
-        // Pass the WO card explicitly so piece timers resolve the correct workorder.
-        if (this.props.record?.resModel === "mrp.workorder") {
+        // Pass the WO card only when the rendered component is StockMove.
+        if (
+            this.props.record?.resModel === "mrp.workorder" &&
+            props.record?.resModel === "stock.move"
+        ) {
             props.workorder = this.props.record;
         }
         return props;
