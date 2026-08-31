@@ -1,8 +1,2 @@
 # -*- coding: utf-8 -*-
-from odoo import fields, models
-
-
-class ProductTemplate(models.Model):
-    _inherit = "product.template"
-
-    sheet_type = fields.Char(string="Tipo de Chapa")
+# Campos de producto definidos en energia_global.models.product_template

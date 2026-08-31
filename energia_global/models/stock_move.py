@@ -49,11 +49,11 @@ class StockMove(models.Model):
 		compute="_compute_is_unlocked",
 	)
 	render_3d_file = fields.Binary(
-		related="bom_line_id.render_3d_file",
+		compute="_compute_render_3d",
 		readonly=True,
 	)
 	render_3d_filename = fields.Char(
-		related="bom_line_id.render_3d_filename",
+		compute="_compute_render_3d",
 		readonly=True,
 	)
 	has_render_3d = fields.Boolean(
@@ -156,10 +156,28 @@ class StockMove(models.Model):
 					workcenters |= move.bom_line_id.operation_id.workcenter_id
 			move.related_workcenter_ids = workcenters
 
-	@api.depends("bom_line_id.render_3d_file")
+	@api.depends(
+		"bom_line_id.render_3d_file",
+		"bom_line_id.render_3d_filename",
+		"raw_material_production_id.product_id",
+		"raw_material_production_id.product_id.product_tmpl_id.render_3d_file",
+		"raw_material_production_id.product_id.product_tmpl_id.render_3d_filename",
+	)
+	def _compute_render_3d(self):
+		for move in self:
+			render_file = move.bom_line_id.render_3d_file
+			render_filename = move.bom_line_id.render_3d_filename
+			if not render_file and move.raw_material_production_id:
+				template = move.raw_material_production_id.product_id.product_tmpl_id
+				render_file = template.render_3d_file
+				render_filename = template.render_3d_filename
+			move.render_3d_file = render_file
+			move.render_3d_filename = render_filename
+
+	@api.depends("render_3d_file")
 	def _compute_has_render_3d(self):
 		for move in self:
-			move.has_render_3d = bool(move.bom_line_id.render_3d_file)
+			move.has_render_3d = bool(move.render_3d_file)
 
 	def _get_required_workorders_for_completion(self):
 		self.ensure_one()

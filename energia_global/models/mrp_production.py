@@ -131,27 +131,76 @@ class MrpProduction(models.Model):
             production.component_total_remaining_qty = remaining_total
             production.component_total_progress_pct = min(progress, 100.0)
 
+    def _get_product_plano_sources(self):
+        """Planos del producto terminado: plano principal + líneas adicionales."""
+        self.ensure_one()
+        template = self.product_id.product_tmpl_id
+        sources = []
+        if template.render_3d_file:
+            sources.append(
+                {
+                    "sequence": 10,
+                    "cnc_number": template.default_code or template.name or "PLANO-1",
+                    "quantity": 1,
+                    "render_3d_file": template.render_3d_file,
+                    "render_3d_filename": template.render_3d_filename,
+                }
+            )
+        for index, plano in enumerate(
+            template.plano_ids.sorted(key=lambda line: (line.sequence, line.id)), start=1
+        ):
+            sources.append(
+                {
+                    "sequence": plano.sequence or (index * 10),
+                    "cnc_number": plano.cnc_number
+                    or plano.name
+                    or f"PLANO-{index}",
+                    "quantity": 1,
+                    "render_3d_file": plano.render_3d_file,
+                    "render_3d_filename": plano.render_3d_filename,
+                }
+            )
+        return sources
+
     def _sync_cnc_tracking_from_bom(self):
         tracking_model = self.env["mrp.cnc.tracking"]
         for production in self:
-            if not production.bom_id:
-                continue
             if production.cnc_tracking_ids:
                 continue
-            bom_cnc_lines = production.bom_id.cnc_config_ids.sorted(key=lambda line: (line.sequence, line.id))
-            if not bom_cnc_lines:
+            bom_cnc_lines = []
+            if production.bom_id:
+                bom_cnc_lines = production.bom_id.cnc_config_ids.sorted(
+                    key=lambda line: (line.sequence, line.id)
+                )
+            if bom_cnc_lines:
+                tracking_model.create(
+                    [
+                        {
+                            "production_id": production.id,
+                            "sequence": line.sequence,
+                            "cnc_number": line.cnc_number,
+                            "quantity": line.quantity,
+                            "render_3d_file": line.render_3d_file,
+                            "render_3d_filename": line.render_3d_filename,
+                        }
+                        for line in bom_cnc_lines
+                    ]
+                )
+                continue
+            product_sources = production._get_product_plano_sources()
+            if not product_sources:
                 continue
             tracking_model.create(
                 [
                     {
                         "production_id": production.id,
-                        "sequence": line.sequence,
-                        "cnc_number": line.cnc_number,
-                        "quantity": line.quantity,
-                        "render_3d_file": line.render_3d_file,
-                        "render_3d_filename": line.render_3d_filename,
+                        "sequence": source["sequence"],
+                        "cnc_number": source["cnc_number"],
+                        "quantity": source["quantity"],
+                        "render_3d_file": source["render_3d_file"],
+                        "render_3d_filename": source["render_3d_filename"],
                     }
-                    for line in bom_cnc_lines
+                    for source in product_sources
                 ]
             )
 

@@ -185,6 +185,27 @@ class ItecApiController(http.Controller):
             return False
         return [(6, 0, tags.ids)]
 
+    def _resolve_client_tags(self, tag_value):
+        """Devuelve un comando M2M ``[(6, 0, [ids])]`` o False si nada matchea."""
+        if not tag_value:
+            return False
+        if isinstance(tag_value, str):
+            names = [tag_value]
+        elif isinstance(tag_value, (list, tuple)):
+            names = [str(x) for x in tag_value if x]
+        else:
+            return False
+        if not names:
+            return False
+        tags = (
+            request.env["product.client.tag"]
+            .sudo()
+            .search([("name", "in", names)])
+        )
+        if not tags:
+            return False
+        return [(6, 0, tags.ids)]
+
     def _resolve_thickness(self, name):
         if not name:
             return False
@@ -233,6 +254,23 @@ class ItecApiController(http.Controller):
         if "surface" in payload and "superficie" not in payload:
             payload["superficie"] = payload["surface"]
         return payload
+
+    def _merge_render_3d(self, payload, data, model_fields):
+        """Decodifica ``render_3d_file`` (Base64) y lo deja en ``data``."""
+        if "render_3d_file" not in payload:
+            return None
+        if "render_3d_file" not in model_fields:
+            return None
+        raw = payload["render_3d_file"]
+        if isinstance(raw, str) and raw.startswith("data:"):
+            raw = raw.split(",", 1)[-1]
+        try:
+            data["render_3d_file"] = base64.b64encode(base64.b64decode(raw))
+        except Exception:
+            return _error("render_3d_file no es un base64 válido.", status=400)
+        if "render_3d_filename" in payload and "render_3d_filename" in model_fields:
+            data["render_3d_filename"] = payload["render_3d_filename"]
+        return None
 
     def _merge_image_1920(self, payload, data, model_fields):
         """Decodifica ``image_1920`` (Base64 o ``data:...;base64,...``) y lo
@@ -301,6 +339,15 @@ class ItecApiController(http.Controller):
                 )
             data["product_tag_ids"] = tag_command
 
+        if "client_tag_ids" in payload and "client_tag_ids" in model_fields:
+            tag_command = self._resolve_client_tags(payload["client_tag_ids"])
+            if tag_command is False:
+                return None, _error(
+                    "La etiqueta de cliente ingresada no existe en el sistema.",
+                    status=404,
+                )
+            data["client_tag_ids"] = tag_command
+
         # --- Thickness (modelo custom de EnergiaGlobal) ---
         if "thickness" in payload:
             if "thickness_measurements" not in model_fields:
@@ -317,6 +364,10 @@ class ItecApiController(http.Controller):
         err_img = self._merge_image_1920(payload, data, model_fields)
         if err_img is not None:
             return None, err_img
+
+        err_render = self._merge_render_3d(payload, data, model_fields)
+        if err_render is not None:
+            return None, err_render
 
         # --- Tipo de producto (Odoo 18+: type='consu' + is_storable=True) ---
         data["tracking"] = "none"
@@ -374,6 +425,15 @@ class ItecApiController(http.Controller):
                 )
             data["product_tag_ids"] = tag_command
 
+        if "client_tag_ids" in payload and "client_tag_ids" in model_fields:
+            tag_command = self._resolve_client_tags(payload["client_tag_ids"])
+            if tag_command is False:
+                return None, _error(
+                    "La etiqueta de cliente ingresada no existe en el sistema.",
+                    status=404,
+                )
+            data["client_tag_ids"] = tag_command
+
         if "thickness" in payload and "thickness_measurements" in model_fields:
             tid = self._resolve_thickness(payload["thickness"])
             if not tid:
@@ -385,6 +445,10 @@ class ItecApiController(http.Controller):
         err_img = self._merge_image_1920(payload, data, model_fields)
         if err_img is not None:
             return None, err_img
+
+        err_render = self._merge_render_3d(payload, data, model_fields)
+        if err_render is not None:
+            return None, err_render
 
         return data, None
 
@@ -450,6 +514,9 @@ class ItecApiController(http.Controller):
         )
 
     def _serialize_product(self, product):
+        thickness = False
+        if "thickness_measurements" in product._fields and product.thickness_measurements:
+            thickness = product.thickness_measurements.name
         return {
             "id": product.id,
             "default_code": product.default_code,
@@ -460,6 +527,17 @@ class ItecApiController(http.Controller):
             "categ_id": product.categ_id.name if product.categ_id else False,
             "uom_id": product.uom_id.name if product.uom_id else False,
             "active": product.active,
+            "sheet_type": product.sheet_type or False,
+            "broad": product.broad or False,
+            "long": product.long or False,
+            "superficie": product.superficie or False,
+            "gross_weight": product.gross_weight or False,
+            "weight": product.weight or False,
+            "thickness": thickness,
+            "product_tag_ids": product.product_tag_ids.mapped("name"),
+            "client_tag_ids": product.client_tag_ids.mapped("name"),
+            "has_render_3d": bool(product.render_3d_file),
+            "render_3d_filename": product.render_3d_filename or False,
         }
 
     # ---------------- Lógica reusable de create / update ----------------

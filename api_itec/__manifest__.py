@@ -7,9 +7,9 @@
     "author": "Chroma Agency",
     "website": "https://chroma.agency",
     "category": "Tools",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "license": "LGPL-3",
-    "depends": ["base", "product", "mrp", "stock",],
+    "depends": ["base", "product", "mrp", "stock", "energia_global"],
     "data": [
         "security/ir.model.access.csv",
         "data/ir_sequence_data.xml",

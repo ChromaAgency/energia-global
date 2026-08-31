@@ -5,4 +5,9 @@ from . import mrp_production
 from . import mrp_workcenter
 from . import mrp_workcenter_productivity
 from . import mrp_workorder
+from . import product_client_tag
+from . import product_plano
+from . import product_template
+from . import sale_order
 from . import stock_move
+from . import thickness_measurements

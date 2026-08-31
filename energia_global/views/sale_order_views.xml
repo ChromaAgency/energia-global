@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_order_form_workflow_substate" model="ir.ui.view">
+        <field name="name">sale.order.form.workflow.substate</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_substate_to_dibujo"
+                        type="object"
+                        string="→ Dibujo"
+                        class="btn-secondary"
+                        invisible="state not in ('draft', 'sent') or workflow_substate != 'draft'"/>
+                <button name="action_substate_to_oficina_tecnica"
+                        type="object"
+                        string="→ Oficina Técnica"
+                        class="btn-secondary"
+                        invisible="state not in ('draft', 'sent') or workflow_substate not in ('draft', 'dibujo')"/>
+                <button name="action_substate_back_to_dibujo"
+                        type="object"
+                        string="← Dibujo"
+                        class="btn-secondary"
+                        invisible="state not in ('draft', 'sent') or workflow_substate != 'oficina_tecnica'"/>
+                <button name="action_substate_back_to_draft"
+                        type="object"
+                        string="← Cotización"
+                        class="btn-secondary"
+                        invisible="state not in ('draft', 'sent') or workflow_substate != 'dibujo'"/>
+            </xpath>
+            <xpath expr="//field[@name='state']" position="before">
+                <field name="workflow_substate"
+                       widget="badge"
+                       readonly="state not in ('draft', 'sent')"
+                       invisible="state not in ('draft', 'sent')"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_quotation_tree_workflow_substate" model="ir.ui.view">
+        <field name="name">sale.order.list.workflow.substate</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_quotation_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='state']" position="before">
+                <field name="workflow_substate" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_order_tree_workflow_substate" model="ir.ui.view">
+        <field name="name">sale.order.tree.workflow.substate</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='state']" position="before">
+                <field name="workflow_substate" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

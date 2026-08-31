@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Energia Global",
-    'version': '19.0.0.4',
+    'version': '19.0.0.5',
 
     'summary': """
         Modulo para customizaciones de Energia Global
@@ -18,10 +18,12 @@
     # for the full list
     'category': 'Miscellaneous',
     # any module necessary for this one to work correctly
-    'depends': ['base', 'mrp', 'mrp_workorder', 'sale_mrp'],
+    'depends': ['base', 'product', 'sale', 'mrp', 'mrp_workorder', 'sale_mrp'],
     # always loaded
     'data': [
         'security/ir.model.access.csv',
+        'views/product_template_views.xml',
+        'views/sale_order_views.xml',
         'views/mrp_workorder_component_filter_views.xml',
         'views/mrp_bom_cnc_views.xml',
         'views/mrp_workcenter_behavior_views.xml',

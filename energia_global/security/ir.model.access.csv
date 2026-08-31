@@ -5,3 +5,10 @@ access_mrp_bom_cnc_user,mrp.bom.cnc user,model_mrp_bom_cnc,mrp.group_mrp_user,1,
 access_mrp_bom_cnc_manager,mrp.bom.cnc manager,model_mrp_bom_cnc,mrp.group_mrp_manager,1,1,1,1
 access_mrp_production_component_summary_user,mrp.production.component.summary user,model_mrp_production_component_summary,mrp.group_mrp_user,1,0,0,0
 access_mrp_production_component_summary_manager,mrp.production.component.summary manager,model_mrp_production_component_summary,mrp.group_mrp_manager,1,0,0,0
+access_thickness_measurements_user,thickness.measurements user,model_thickness_measurements,base.group_user,1,0,0,0
+access_thickness_measurements_stock,thickness.measurements stock,model_thickness_measurements,stock.group_stock_user,1,1,1,1
+access_product_client_tag_user,product.client.tag user,model_product_client_tag,base.group_user,1,0,0,0
+access_product_client_tag_sale,product.client.tag sale,model_product_client_tag,sales_team.group_sale_salesman,1,1,1,0
+access_product_client_tag_manager,product.client.tag manager,model_product_client_tag,sales_team.group_sale_manager,1,1,1,1
+access_product_template_plano_user,product.template.plano user,model_product_template_plano,mrp.group_mrp_user,1,1,1,1
+access_product_template_plano_manager,product.template.plano manager,model_product_template_plano,mrp.group_mrp_manager,1,1,1,1
