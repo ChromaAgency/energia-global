@@ -96,7 +96,7 @@
                     </div>
                 </t>
                 <t t-if="showBlockedInfo">
-                    <div class="text-danger small" t-out="uiState.blockedByText"/>
+                    <div class="text-danger small" t-out="blockedDisplayText"/>
                 </t>
                 <div class="btn-group mt-1">
                     <button type="button" class="btn btn-primary btn-sm" t-if="showStartButton" t-on-click="onStartPiece">

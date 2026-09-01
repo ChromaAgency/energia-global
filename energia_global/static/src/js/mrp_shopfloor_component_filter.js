@@ -87,6 +87,16 @@ patch(MrpDisplayRecord.prototype, {
         });
     },
 
+    _getWorkcenterId(workcenter) {
+        if (!workcenter) {
+            return false;
+        }
+        if (typeof workcenter === "number") {
+            return workcenter;
+        }
+        return workcenter.resId || workcenter.id || workcenter.data?.id || false;
+    },
+
     _getRelatedWorkcenterIds(move) {
         const related = move.data.related_workcenter_ids;
         if (!related) {
@@ -96,23 +106,29 @@ patch(MrpDisplayRecord.prototype, {
             return related.resIds;
         }
         return (related.records || [])
-            .map((workcenter) => workcenter.resId || workcenter.id || workcenter.data?.id)
+            .map((workcenter) => this._getWorkcenterId(workcenter))
             .filter(Boolean);
     },
 
     _filterMovesByWorkcenter(moves) {
-        const workcenterId = this.props.record.data.workcenter_id?.id;
+        if (this.props.record?.resModel !== "mrp.workorder") {
+            return moves;
+        }
+        const workcenterId = this._getWorkcenterId(this.props.record.data.workcenter_id);
+        const currentOperationId =
+            this.props.record.data.operation_id?.id ||
+            this.props.record.data.operation_id?.resId;
         return moves.filter((move) => {
             const relatedWorkcenters = this._getRelatedWorkcenterIds(move);
-            // Only show components mapped to workcenters; unmapped ones appear
-            // "Bloqueado por" the previous WO forever (no piece timer there).
-            if (!relatedWorkcenters.length) {
-                return false;
+            if (relatedWorkcenters.length) {
+                return !workcenterId || relatedWorkcenters.includes(workcenterId);
             }
-            if (!workcenterId) {
-                return true;
+            const moveOperationId =
+                move.data.operation_id?.id || move.data.operation_id?.resId;
+            if (currentOperationId && moveOperationId) {
+                return moveOperationId === currentOperationId;
             }
-            return relatedWorkcenters.includes(workcenterId);
+            return true;
         });
     },
 
@@ -393,7 +409,15 @@ patch(StockMove.prototype, {
     },
 
     get showBlockedInfo() {
-        return !this.uiState.isUnlocked && this.uiState.pieceState !== "working" && this.uiState.blockedByText;
+        return (
+            !this.uiState.isUnlocked &&
+            this.uiState.pieceState !== "working" &&
+            this.uiState.pieceState !== "done"
+        );
+    },
+
+    get blockedDisplayText() {
+        return this.uiState.blockedByText || _t("Pieza bloqueada.");
     },
 
     async _refreshPieceState() {
@@ -455,26 +479,23 @@ patch(StockMove.prototype, {
     _getCurrentWorkcenterId() {
         const workorder = this.props.workorder;
         if (workorder?.resModel === "mrp.workorder") {
-            const workcenter = workorder.data?.workcenter_id;
-            const workcenterId = workcenter?.resId || workcenter?.id || workcenter?.data?.id;
+            const workcenterId = this._getWorkcenterId(workorder.data?.workcenter_id);
             if (workcenterId) {
                 return workcenterId;
             }
         }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder") {
-            const rootWorkcenter = rootRecord?.data?.workcenter_id;
-            const rootWorkcenterId =
-                rootWorkcenter?.resId || rootWorkcenter?.id || rootWorkcenter?.data?.id;
-            if (rootWorkcenterId) {
-                return rootWorkcenterId;
+            const workcenterId = this._getWorkcenterId(rootRecord?.data?.workcenter_id);
+            if (workcenterId) {
+                return workcenterId;
             }
         }
-        const fromRecord = this.props?.record?.data?.workcenter_id;
-        const fromWorkorder = this.props?.workorder?.data?.workcenter_id;
-        const fromRoot = this.props?.record?.model?.root?.data?.workcenter_id;
-        const workcenter = fromRecord || fromWorkorder || fromRoot;
-        return workcenter?.resId || workcenter?.id || workcenter?.data?.id;
+        return this._getWorkcenterId(
+            this.props?.record?.data?.workcenter_id ||
+                this.props?.workorder?.data?.workcenter_id ||
+                this.props?.record?.model?.root?.data?.workcenter_id
+        );
     },
 
     _getCurrentWorkcenterRecord() {
@@ -591,29 +612,17 @@ patch(StockMove.prototype, {
         return workorder?.resId || workorder?.id || workorder?.data?.id;
     },
 
-    async _resolveWorkorderId(moveId) {
-        const currentWorkcenterId = this._getCurrentWorkcenterId();
+    async _resolveWorkorderId(_moveId) {
+        if (this.props.workorder?.resModel === "mrp.workorder" && this.props.workorder.resId) {
+            return this.props.workorder.resId;
+        }
         const workorderIdFromProps = this._getWorkorderIdFromProps();
         if (workorderIdFromProps) {
-            if (!currentWorkcenterId) {
-                return workorderIdFromProps;
-            }
-            try {
-                const [workorderData] = await this.orm.read(
-                    "mrp.workorder",
-                    [workorderIdFromProps],
-                    ["workcenter_id"]
-                );
-                const workorderWorkcenterId = workorderData?.workcenter_id?.[0];
-                if (workorderWorkcenterId === currentWorkcenterId) {
-                    return workorderIdFromProps;
-                }
-            } catch (_error) {
-                // If the lightweight validation fails, fall back to explicit resolution below.
-            }
+            return workorderIdFromProps;
         }
+        const currentWorkcenterId = this._getCurrentWorkcenterId();
         return await this.orm.call("mrp.workorder", "resolve_workorder_for_move", [
-            moveId,
+            _moveId,
             currentWorkcenterId || false,
         ]);
     },
