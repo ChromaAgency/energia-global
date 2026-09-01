@@ -107,21 +107,18 @@ class MrpWorkorder(models.Model):
         if blocking_workorders:
             return blocking_workorders
 
-        related_operations = self._get_move_related_operations(move)
-        if related_operations and self.production_id:
-            return self.production_id.workorder_ids.filtered(
-                lambda workorder: workorder.id != self.id
-                and workorder.operation_id in related_operations
-                and (
-                    workorder.sequence < self.sequence
-                    or (workorder.sequence == self.sequence and workorder.id < self.id)
-                )
-            )
+        if not self.production_id:
+            return self.env["mrp.workorder"]
 
-        previous_workorder = self._get_previous_workorder()
-        if previous_workorder:
-            return previous_workorder
-        return self.env["mrp.workorder"]
+        previous_related = self.env["mrp.workorder"]
+        for workorder in self.production_id.workorder_ids.sorted(
+            key=lambda current_workorder: (current_workorder.sequence, current_workorder.id)
+        ):
+            if workorder.id == self.id:
+                break
+            if self._is_move_related_to_workorder(move, workorder):
+                previous_related |= workorder
+        return previous_related
 
     def _resolve_grouping_field(self, move):
         self.ensure_one()
