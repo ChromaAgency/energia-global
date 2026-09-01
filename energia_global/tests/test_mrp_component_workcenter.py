@@ -321,6 +321,83 @@ class TestMrpComponentWorkcenter(TransactionCase):
         self.assertEqual(move.component_finalization_state, "done")
         self.assertIn("Finalizado", move.component_operation_stage_label)
 
+    def test_first_workorder_unlocked_for_multi_operation_move(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_ids": [(6, 0, [self.operation_a.id, self.operation_b.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Blocking First WO",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        workorder_a = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_a
+        )[:1]
+        workorder_b = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_b
+        )[:1]
+
+        status_a = workorder_a.get_move_timer_status(move.id)
+        status_b = workorder_b.get_move_timer_status(move.id)
+
+        self.assertTrue(status_a["is_unlocked"])
+        self.assertFalse(status_b["is_unlocked"])
+        self.assertIn(workorder_a.display_name, status_b["blocked_by_text"])
+
+    def test_second_workorder_unlocks_after_first_done(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_ids": [(6, 0, [self.operation_a.id, self.operation_b.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Blocking Unlock Flow",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        workorder_a = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_a
+        )[:1]
+        workorder_b = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_b
+        )[:1]
+
+        workorder_a.action_start_piece_time(move.id)
+        workorder_a.action_stop_piece_time(move.id)
+
+        status_b = workorder_b.get_move_timer_status(move.id)
+        self.assertTrue(status_b["is_unlocked"])
+        workorder_b.action_start_piece_time(move.id)
+
+    def test_unmapped_move_is_unlocked_on_any_workorder(self):
+        production, workorder, move = self._create_production_with_component_move()
+        move.write({"operation_id": False, "bom_line_id": False})
+        move._compute_related_operation_ids()
+        move._compute_related_workcenter_ids()
+
+        status = workorder.get_move_timer_status(move.id)
+        self.assertTrue(status["is_unlocked"])
+
     def test_component_summary_groups_required_qty_by_product(self):
         self.env["mrp.bom.line"].create({
             "bom_id": self.bom.id,

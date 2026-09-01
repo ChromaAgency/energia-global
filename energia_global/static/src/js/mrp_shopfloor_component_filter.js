@@ -2,7 +2,7 @@
 
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
-import { onWillStart, onWillUnmount, useState } from "@odoo/owl";
+import { onMounted, onWillStart, onWillUnmount, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
@@ -10,14 +10,8 @@ import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move
 
 const PIECE_STATE_REFRESH_EVENT = "energia_global:piece_state_refresh";
 
-import { MrpDisplay } from "@mrp_workorder/mrp_display/mrp_display";
 import { ThreeJSDialog } from "./three_viewer";
 
-patch(MrpDisplay.prototype, {
-    setup(){
-        super.setup();
-    }
-})
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {
         const fieldsStructure = super.fieldsStructure;
@@ -58,36 +52,6 @@ patch(MrpDisplayAction.prototype, {
     },
 });
 
-patch(StockMove.prototype, {
-    setup() {
-        super.setup();
-        this.dialog = useService("dialog");
-        this.notification = useService("notification");
-    },
-
-    openThreeDViewer(e) {
-        e.stopPropagation();
-        const record = this.props.record;
-        if (!record?.data?.has_render_3d) {
-            this.notification.add("No hay plano 3D disponible.", { type: "warning" });
-            return;
-        }
-        const resId = record.resId || record.data.id;
-        const resModel = record.resModel || "stock.move";
-        if (!resId) {
-            this.notification.add("No se pudo identificar el componente.", { type: "danger" });
-            return;
-        }
-        const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
-        this.dialog.add(ThreeJSDialog, {
-            title: "Plano",
-            modelUrl,
-            filename: record.data.render_3d_filename,
-            onOpen: () => this._handleViewerOpened(),
-            onClose: () => this._handleViewerClosed(),
-        });
-    },
-});
 patch(MrpDisplayRecord.prototype, {
     setup() {
         super.setup();
@@ -104,29 +68,80 @@ patch(MrpDisplayRecord.prototype, {
     },
 
 
+    _getRecordKey(record) {
+        return record?.resId ?? record?.data?.id ?? record?.id;
+    },
+
+    _dedupeRecords(records) {
+        const seen = new Set();
+        return (records || []).filter((record) => {
+            const key = this._getRecordKey(record);
+            if (key == null) {
+                return false;
+            }
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    },
+
+    _getWorkcenterId(workcenter) {
+        if (!workcenter) {
+            return false;
+        }
+        if (typeof workcenter === "number") {
+            return workcenter;
+        }
+        return workcenter.resId || workcenter.id || workcenter.data?.id || false;
+    },
+
+    _getRelatedWorkcenterIds(move) {
+        const related = move.data.related_workcenter_ids;
+        if (!related) {
+            return [];
+        }
+        if (related.resIds?.length) {
+            return related.resIds;
+        }
+        return (related.records || [])
+            .map((workcenter) => this._getWorkcenterId(workcenter))
+            .filter(Boolean);
+    },
+
     _filterMovesByWorkcenter(moves) {
-        const workcenterId = this.props.record.data.workcenter_id?.id;
+        if (this.props.record?.resModel !== "mrp.workorder") {
+            return moves;
+        }
+        const workcenterId = this._getWorkcenterId(this.props.record.data.workcenter_id);
+        const currentOperationId =
+            this.props.record.data.operation_id?.id ||
+            this.props.record.data.operation_id?.resId;
         return moves.filter((move) => {
-            const relatedWorkcenters = move.data.related_workcenter_ids?.resIds || [];
-            if (!relatedWorkcenters.length) {
-                return false;
+            const relatedWorkcenters = this._getRelatedWorkcenterIds(move);
+            if (relatedWorkcenters.length) {
+                return !workcenterId || relatedWorkcenters.includes(workcenterId);
             }
-            if (!workcenterId) {
-                return true;
-            }
-            const isRelatedToCurrentWorkcenter = relatedWorkcenters.includes(workcenterId);
-            if (!isRelatedToCurrentWorkcenter) {
-                return false;
+            const moveOperationId =
+                move.data.operation_id?.id || move.data.operation_id?.resId;
+            if (currentOperationId && moveOperationId) {
+                return moveOperationId === currentOperationId;
             }
             return true;
         });
     },
 
     get moves() {
-        const productionMoves = this.props.production.data.move_raw_ids.records.filter(
-            (move) => !move.data.scrapped && move.data.check_id && !move.data.check_id.count
-        );
-        return this._filterMovesByWorkcenter(productionMoves);
+        return this._dedupeRecords(this._filterMovesByWorkcenter(super.moves));
+    },
+
+    get checks() {
+        return this._dedupeRecords(super.checks);
+    },
+
+    get byProducts() {
+        return this._dedupeRecords(super.byProducts);
     },
 
     get isWorkorderRecord() {
@@ -266,6 +281,26 @@ patch(MrpDisplayRecord.prototype, {
         ev.stopPropagation();
         await this._runCncAction(record.id, "action_finish");
     },
+
+    subRecordProps(subRecord) {
+        const props = super.subRecordProps(subRecord);
+        // Moves come from production.move_raw_ids, so record.model.root is the MO.
+        // Pass the WO card only when the rendered component is StockMove.
+        if (
+            this.props.record?.resModel === "mrp.workorder" &&
+            props.record?.resModel === "stock.move"
+        ) {
+            props.workorder = this.props.record;
+        }
+        return props;
+    },
+});
+
+patch(StockMove, {
+    props: {
+        ...StockMove.props,
+        workorder: { type: Object, optional: true },
+    },
 });
 
 patch(StockMove.prototype, {
@@ -278,12 +313,12 @@ patch(StockMove.prototype, {
         this._workcenterGroupingFieldCache = {};
         this.uiState = useState({
             pieceState: "idle",
-            isUnlocked: false,
+            isUnlocked: true,
             blockedByText: false,
             viewerOpenCount: 0,
         });
-        onWillStart(async () => {
-            await this._refreshPieceState();
+        onMounted(() => {
+            this._refreshPieceState();
         });
         this._onPieceStateRefresh = (ev) => {
             this._handlePieceStateRefreshEvent(ev);
@@ -374,7 +409,15 @@ patch(StockMove.prototype, {
     },
 
     get showBlockedInfo() {
-        return !this.uiState.isUnlocked && this.uiState.pieceState !== "working" && this.uiState.blockedByText;
+        return (
+            !this.uiState.isUnlocked &&
+            this.uiState.pieceState !== "working" &&
+            this.uiState.pieceState !== "done"
+        );
+    },
+
+    get blockedDisplayText() {
+        return this.uiState.blockedByText || _t("Pieza bloqueada.");
     },
 
     async _refreshPieceState() {
@@ -387,14 +430,14 @@ patch(StockMove.prototype, {
             if (!moveId) {
                 this.uiState.pieceState = "idle";
                 this.uiState.isUnlocked = false;
-                this.uiState.blockedByText = false;
+                this.uiState.blockedByText = _t("No se pudo identificar el componente.");
                 return;
             }
             const workorderId = await this._resolveWorkorderId(moveId);
             if (!workorderId) {
                 this.uiState.pieceState = "idle";
                 this.uiState.isUnlocked = false;
-                this.uiState.blockedByText = false;
+                this.uiState.blockedByText = _t("No se pudo identificar la orden de trabajo.");
                 return;
             }
             const status = await this.orm.call("mrp.workorder", "get_move_timer_status", [
@@ -404,19 +447,25 @@ patch(StockMove.prototype, {
             this.uiState.pieceState = status?.piece_state || "idle";
             this.uiState.isUnlocked = Boolean(status?.is_unlocked);
             this.uiState.blockedByText = status?.blocked_by_text || false;
+        } catch (_error) {
+            this.uiState.pieceState = "idle";
+            this.uiState.isUnlocked = false;
+            this.uiState.blockedByText = _t("No se pudo cargar el estado de la pieza.");
         } finally {
             this._refreshingState = false;
         }
     },
 
     _getWorkorderRecord() {
+        if (this.props.workorder) {
+            return this.props.workorder;
+        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder") {
             return rootRecord;
         }
         const directWorkorder = (
             this.props?.record?.data?.workorder_id ||
-            this.props.workorder ||
             this.props.workorderRecord ||
             this.props.workorder_record ||
             this.props.record?.model?.root?.data?.workorder_id
@@ -428,23 +477,32 @@ patch(StockMove.prototype, {
     },
 
     _getCurrentWorkcenterId() {
-        const rootRecord = this.props?.record?.model?.root;
-        if (rootRecord?.resModel === "mrp.workorder") {
-            const rootWorkcenter = rootRecord?.data?.workcenter_id;
-            const rootWorkcenterId =
-                rootWorkcenter?.resId || rootWorkcenter?.id || rootWorkcenter?.data?.id;
-            if (rootWorkcenterId) {
-                return rootWorkcenterId;
+        const workorder = this.props.workorder;
+        if (workorder?.resModel === "mrp.workorder") {
+            const workcenterId = this._getWorkcenterId(workorder.data?.workcenter_id);
+            if (workcenterId) {
+                return workcenterId;
             }
         }
-        const fromRecord = this.props?.record?.data?.workcenter_id;
-        const fromWorkorder = this.props?.workorder?.data?.workcenter_id;
-        const fromRoot = this.props?.record?.model?.root?.data?.workcenter_id;
-        const workcenter = fromRecord || fromWorkorder || fromRoot;
-        return workcenter?.resId || workcenter?.id || workcenter?.data?.id;
+        const rootRecord = this.props?.record?.model?.root;
+        if (rootRecord?.resModel === "mrp.workorder") {
+            const workcenterId = this._getWorkcenterId(rootRecord?.data?.workcenter_id);
+            if (workcenterId) {
+                return workcenterId;
+            }
+        }
+        return this._getWorkcenterId(
+            this.props?.record?.data?.workcenter_id ||
+                this.props?.workorder?.data?.workcenter_id ||
+                this.props?.record?.model?.root?.data?.workcenter_id
+        );
     },
 
     _getCurrentWorkcenterRecord() {
+        const workorder = this.props.workorder;
+        if (workorder?.resModel === "mrp.workorder" && workorder?.data?.workcenter_id) {
+            return workorder.data.workcenter_id;
+        }
         const rootRecord = this.props?.record?.model?.root;
         if (rootRecord?.resModel === "mrp.workorder" && rootRecord?.data?.workcenter_id) {
             return rootRecord.data.workcenter_id;
@@ -554,29 +612,17 @@ patch(StockMove.prototype, {
         return workorder?.resId || workorder?.id || workorder?.data?.id;
     },
 
-    async _resolveWorkorderId(moveId) {
-        const currentWorkcenterId = this._getCurrentWorkcenterId();
+    async _resolveWorkorderId(_moveId) {
+        if (this.props.workorder?.resModel === "mrp.workorder" && this.props.workorder.resId) {
+            return this.props.workorder.resId;
+        }
         const workorderIdFromProps = this._getWorkorderIdFromProps();
         if (workorderIdFromProps) {
-            if (!currentWorkcenterId) {
-                return workorderIdFromProps;
-            }
-            try {
-                const [workorderData] = await this.orm.read(
-                    "mrp.workorder",
-                    [workorderIdFromProps],
-                    ["workcenter_id"]
-                );
-                const workorderWorkcenterId = workorderData?.workcenter_id?.[0];
-                if (workorderWorkcenterId === currentWorkcenterId) {
-                    return workorderIdFromProps;
-                }
-            } catch (_error) {
-                // If the lightweight validation fails, fall back to explicit resolution below.
-            }
+            return workorderIdFromProps;
         }
+        const currentWorkcenterId = this._getCurrentWorkcenterId();
         return await this.orm.call("mrp.workorder", "resolve_workorder_for_move", [
-            moveId,
+            _moveId,
             currentWorkcenterId || false,
         ]);
     },
@@ -679,5 +725,28 @@ patch(StockMove.prototype, {
     async onStopPiece(ev) {
         ev.stopPropagation();
         await this._handlePieceAction("stop");
+    },
+
+    openThreeDViewer(e) {
+        e.stopPropagation();
+        const record = this.props.record;
+        if (!record?.data?.has_render_3d) {
+            this.notification.add(_t("No hay plano 3D disponible."), { type: "warning" });
+            return;
+        }
+        const resId = record.resId || record.data.id;
+        const resModel = record.resModel || "stock.move";
+        if (!resId) {
+            this.notification.add(_t("No se pudo identificar el componente."), { type: "danger" });
+            return;
+        }
+        const modelUrl = `/web/content?model=${resModel}&id=${resId}&field=render_3d_file&filename_field=render_3d_filename&download=false`;
+        this.dialog.add(ThreeJSDialog, {
+            title: _t("Plano"),
+            modelUrl,
+            filename: record.data.render_3d_filename,
+            onOpen: () => this._handleViewerOpened(),
+            onClose: () => this._handleViewerClosed(),
+        });
     },
 });

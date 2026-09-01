@@ -51,10 +51,19 @@
                 </div>
             </t>
         </xpath>
+        <xpath expr="//t[@t-foreach='moves']" position="attributes">
+            <attribute name="t-key">move.resId</attribute>
+        </xpath>
+        <xpath expr="//t[@t-foreach='checks']" position="attributes">
+            <attribute name="t-key">check.resId</attribute>
+        </xpath>
+        <xpath expr="//t[@t-foreach='byProducts']" position="attributes">
+            <attribute name="t-key">byproductMove.resId</attribute>
+        </xpath>
     </t>
     
     <t t-inherit="mrp_workorder.StockMove" t-inherit-mode="extension">
-        <xpath expr="//span[contains(@class, 'o_line_label')]" position="after">
+        <xpath expr="(//span[contains(@class, 'o_line_label')])[1]" position="after">
             <div class="d-flex flex-column flex-grow-1">
                 <t t-if="props.record.data.final_product_id">
                     <div class="text-muted small">
@@ -74,7 +83,7 @@
                 </t>
                 <t t-if="props.record.data.related_workcenter_ids &amp;&amp; props.record.data.related_workcenter_ids.records &amp;&amp; props.record.data.related_workcenter_ids.records.length">
                     <div class="text-muted small">
-                        <t t-foreach="props.record.data.related_workcenter_ids.records" t-as="wc" t-key="wc.id">
+                        <t t-foreach="props.record.data.related_workcenter_ids.records" t-as="wc" t-key="wc.resId">
                             <t t-out="wc.display_name"/>
                         </t>
                     </div>
@@ -87,7 +96,7 @@
                     </div>
                 </t>
                 <t t-if="showBlockedInfo">
-                    <div class="text-danger small" t-out="uiState.blockedByText"/>
+                    <div class="text-danger small" t-out="blockedDisplayText"/>
                 </t>
                 <div class="btn-group mt-1">
                     <button type="button" class="btn btn-primary btn-sm" t-if="showStartButton" t-on-click="onStartPiece">
