@@ -321,6 +321,36 @@ class TestMrpComponentWorkcenter(TransactionCase):
         self.assertEqual(move.component_finalization_state, "done")
         self.assertIn("Finalizado", move.component_operation_stage_label)
 
+    def test_resolve_workorder_for_move_uses_related_operations(self):
+        bom_line = self.env["mrp.bom.line"].create({
+            "bom_id": self.bom.id,
+            "product_id": self.component.id,
+            "product_qty": 1.0,
+            "product_uom_id": self.uom_unit.id,
+            "operation_ids": [(6, 0, [self.operation_a.id, self.operation_b.id])],
+        })
+        production = self.env["mrp.production"].create({
+            "name": "MO Resolve Workorder",
+            "company_id": self.company.id,
+            "product_id": self.product.id,
+            "product_uom_id": self.uom_unit.id,
+            "product_qty": 1.0,
+            "bom_id": self.bom.id,
+            "location_src_id": self.location_src.id,
+            "location_dest_id": self.location_dest.id,
+        })
+        production.action_confirm()
+        move = production.move_raw_ids.filtered(lambda current_move: current_move.bom_line_id == bom_line)[:1]
+        workorder_b = production.workorder_ids.filtered(
+            lambda current_workorder: current_workorder.operation_id == self.operation_b
+        )[:1]
+
+        resolved_id = self.env["mrp.workorder"].resolve_workorder_for_move(
+            move.id,
+            workorder_b.workcenter_id.id,
+        )
+        self.assertEqual(resolved_id, workorder_b.id)
+
     def test_first_workorder_unlocked_for_multi_operation_move(self):
         bom_line = self.env["mrp.bom.line"].create({
             "bom_id": self.bom.id,

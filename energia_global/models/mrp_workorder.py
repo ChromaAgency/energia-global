@@ -10,17 +10,25 @@ class MrpWorkorder(models.Model):
         move = self.env["stock.move"].browse(move_id).exists()
         if not move:
             return False
-        if move.workorder_id:
-            if not workcenter_id or move.workorder_id.workcenter_id.id == workcenter_id:
-                return move.workorder_id.id
         production = move.raw_material_production_id or move.production_id
         if not production:
             return False
         workorders = production.workorder_ids
         if workcenter_id:
-            workorders = workorders.filtered(lambda workorder: workorder.workcenter_id.id == workcenter_id)
-        if move.operation_id:
-            operation_workorders = workorders.filtered(lambda workorder: workorder.operation_id == move.operation_id)
+            workorders = workorders.filtered(
+                lambda workorder: workorder.workcenter_id.id == workcenter_id
+            )
+        related_operations = move.related_operation_ids
+        if related_operations:
+            operation_workorders = workorders.filtered(
+                lambda workorder: workorder.operation_id in related_operations
+            )
+            if operation_workorders:
+                workorders = operation_workorders
+        elif move.operation_id:
+            operation_workorders = workorders.filtered(
+                lambda workorder: workorder.operation_id == move.operation_id
+            )
             if operation_workorders:
                 workorders = operation_workorders
         elif move.bom_line_id and move.bom_line_id.operation_ids:
@@ -168,7 +176,7 @@ class MrpWorkorder(models.Model):
 
     def _is_move_related_to_workorder(self, move, workorder):
         if not workorder.operation_id:
-            return True
+            return False
         related_operations = self._get_move_related_operations(move)
         if not related_operations:
             return False

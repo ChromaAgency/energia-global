@@ -2,15 +2,41 @@
 
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
-import { onMounted, onWillStart, onWillUnmount, useState } from "@odoo/owl";
+import { onMounted, onWillStart, onWillUnmount, onWillUpdateProps, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { MrpDisplayRecord } from "@mrp_workorder/mrp_display/mrp_display_record";
 import { MrpDisplayAction } from "@mrp_workorder/mrp_display/mrp_display_action";
 import { StockMove } from "@mrp_workorder/mrp_display/mrp_record_line/stock_move";
+import { ThreeJSDialog } from "./three_viewer";
 
 const PIECE_STATE_REFRESH_EVENT = "energia_global:piece_state_refresh";
 
-import { ThreeJSDialog } from "./three_viewer";
+function getRecordId(record) {
+    if (!record) {
+        return false;
+    }
+    if (typeof record === "number") {
+        return record;
+    }
+    return record.resId ?? record.id ?? record.data?.id ?? false;
+}
+
+function getWorkcenterId(workcenter) {
+    if (!workcenter) {
+        return false;
+    }
+    if (typeof workcenter === "number") {
+        return workcenter;
+    }
+    return workcenter.resId ?? workcenter.id ?? workcenter.data?.id ?? false;
+}
+
+function getWorkorderIdFromRecord(record) {
+    if (!record || record.resModel !== "mrp.workorder") {
+        return false;
+    }
+    return getRecordId(record);
+}
 
 patch(MrpDisplayAction.prototype, {
     get fieldsStructure() {
@@ -46,6 +72,7 @@ patch(MrpDisplayAction.prototype, {
         ensureField("mrp.production", "customer_name");
         ensureField("mrp.production", "workorder_ids");
         ensureField("mrp.workorder", "workcenter_id");
+        ensureField("mrp.workorder", "operation_id");
         ensureField("mrp.workcenter", "behavior_type");
         ensureField("mrp.workcenter", "grouping_field");
         return fieldsStructure;
@@ -69,7 +96,7 @@ patch(MrpDisplayRecord.prototype, {
 
 
     _getRecordKey(record) {
-        return record?.resId ?? record?.data?.id ?? record?.id;
+        return getRecordId(record);
     },
 
     _dedupeRecords(records) {
@@ -88,13 +115,7 @@ patch(MrpDisplayRecord.prototype, {
     },
 
     _getWorkcenterId(workcenter) {
-        if (!workcenter) {
-            return false;
-        }
-        if (typeof workcenter === "number") {
-            return workcenter;
-        }
-        return workcenter.resId || workcenter.id || workcenter.data?.id || false;
+        return getWorkcenterId(workcenter);
     },
 
     _getRelatedWorkcenterIds(move) {
@@ -114,26 +135,39 @@ patch(MrpDisplayRecord.prototype, {
         if (this.props.record?.resModel !== "mrp.workorder") {
             return moves;
         }
-        const workcenterId = this._getWorkcenterId(this.props.record.data.workcenter_id);
-        const currentOperationId =
-            this.props.record.data.operation_id?.id ||
-            this.props.record.data.operation_id?.resId;
+        const workcenterId = getWorkcenterId(this.props.record.data.workcenter_id);
+        const currentOperationId = getRecordId(this.props.record.data.operation_id);
+        const currentWorkorderId = getRecordId(this.props.record);
         return moves.filter((move) => {
             const relatedWorkcenters = this._getRelatedWorkcenterIds(move);
             if (relatedWorkcenters.length) {
                 return !workcenterId || relatedWorkcenters.includes(workcenterId);
             }
-            const moveOperationId =
-                move.data.operation_id?.id || move.data.operation_id?.resId;
+            const moveOperationId = getRecordId(move.data.operation_id);
             if (currentOperationId && moveOperationId) {
                 return moveOperationId === currentOperationId;
+            }
+            const moveWorkorderId = getRecordId(move.data.workorder_id);
+            if (currentWorkorderId && moveWorkorderId) {
+                return moveWorkorderId === currentWorkorderId;
             }
             return true;
         });
     },
 
     get moves() {
-        return this._dedupeRecords(this._filterMovesByWorkcenter(super.moves));
+        if (this.props.record?.resModel !== "mrp.workorder") {
+            return this._dedupeRecords(super.moves);
+        }
+        // Components live on production.move_raw_ids; filter by related workcenters
+        // so the same move appears on each relevant OT card with the correct context.
+        const productionMoves = (this.props.production?.data?.move_raw_ids?.records || []).filter(
+            (move) => !move.data.scrapped && !move.data.check_id?.count
+        );
+        const filtered = this._filterMovesByWorkcenter(productionMoves);
+        const seen = new Set(filtered.map((move) => this._getRecordKey(move)));
+        const extras = super.moves.filter((move) => !seen.has(this._getRecordKey(move)));
+        return this._dedupeRecords([...filtered, ...extras]);
     },
 
     get checks() {
@@ -149,13 +183,7 @@ patch(MrpDisplayRecord.prototype, {
     },
 
     _extractRecordId(value) {
-        if (!value) {
-            return false;
-        }
-        if (typeof value === "number") {
-            return value;
-        }
-        return value.resId || value.id || value.data?.id || false;
+        return getRecordId(value);
     },
 
     _getWorkorderId() {
@@ -304,6 +332,14 @@ patch(StockMove, {
 });
 
 patch(StockMove.prototype, {
+    _getWorkcenterId(workcenter) {
+        return getWorkcenterId(workcenter);
+    },
+
+    _getWorkorderIdFromRecord(record) {
+        return getWorkorderIdFromRecord(record);
+    },
+
     setup() {
         super.setup();
         this.dialog = useService("dialog");
@@ -319,6 +355,13 @@ patch(StockMove.prototype, {
         });
         onMounted(() => {
             this._refreshPieceState();
+        });
+        onWillUpdateProps((nextProps) => {
+            const prevWorkorderId = getWorkorderIdFromRecord(this.props.workorder);
+            const nextWorkorderId = getWorkorderIdFromRecord(nextProps.workorder);
+            if (prevWorkorderId !== nextWorkorderId) {
+                this._refreshPieceState();
+            }
         });
         this._onPieceStateRefresh = (ev) => {
             this._handlePieceStateRefreshEvent(ev);
@@ -338,7 +381,7 @@ patch(StockMove.prototype, {
     },
 
     _getCurrentMoveId() {
-        return this.props.record?.resId || this.props.record?.data?.id;
+        return getRecordId(this.props.record);
     },
 
     _applyPieceStateFromAction(action) {
@@ -425,7 +468,7 @@ patch(StockMove.prototype, {
             return;
         }
         this._refreshingState = true;
-        const moveId = this.props.record?.resId || this.props.record?.data?.id;
+        const moveId = getRecordId(this.props.record);
         try {
             if (!moveId) {
                 this.uiState.pieceState = "idle";
@@ -447,7 +490,8 @@ patch(StockMove.prototype, {
             this.uiState.pieceState = status?.piece_state || "idle";
             this.uiState.isUnlocked = Boolean(status?.is_unlocked);
             this.uiState.blockedByText = status?.blocked_by_text || false;
-        } catch (_error) {
+        } catch (error) {
+            console.error("energia_global: failed to load piece timer status", error);
             this.uiState.pieceState = "idle";
             this.uiState.isUnlocked = false;
             this.uiState.blockedByText = _t("No se pudo cargar el estado de la pieza.");
@@ -602,19 +646,18 @@ patch(StockMove.prototype, {
     },
 
     _getWorkorderIdFromProps() {
+        const fromWorkorderProp = getWorkorderIdFromRecord(this.props.workorder);
+        if (fromWorkorderProp) {
+            return fromWorkorderProp;
+        }
         const workorder = this._getWorkorderRecord();
-        if (typeof workorder === "number") {
-            return workorder;
-        }
-        if (workorder?.resModel === "mrp.workorder" && workorder?.resId) {
-            return workorder.resId;
-        }
-        return workorder?.resId || workorder?.id || workorder?.data?.id;
+        return getRecordId(workorder);
     },
 
     async _resolveWorkorderId(_moveId) {
-        if (this.props.workorder?.resModel === "mrp.workorder" && this.props.workorder.resId) {
-            return this.props.workorder.resId;
+        const fromCard = getWorkorderIdFromRecord(this.props.workorder);
+        if (fromCard) {
+            return fromCard;
         }
         const workorderIdFromProps = this._getWorkorderIdFromProps();
         if (workorderIdFromProps) {
@@ -628,7 +671,7 @@ patch(StockMove.prototype, {
     },
 
     async _handlePieceAction(action, options = {}) {
-        const moveId = this.props.record?.resId || this.props.record?.data?.id;
+        const moveId = getRecordId(this.props.record);
         if (!moveId) {
             if (!options.silent) {
                 this.notification.add(_t("No se pudo identificar el componente."), {
