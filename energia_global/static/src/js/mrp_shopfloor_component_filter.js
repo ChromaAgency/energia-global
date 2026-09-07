@@ -114,60 +114,46 @@ patch(MrpDisplayRecord.prototype, {
         });
     },
 
-    _getWorkcenterId(workcenter) {
-        return getWorkcenterId(workcenter);
-    },
-
-    _getRelatedWorkcenterIds(move) {
-        const related = move.data.related_workcenter_ids;
-        if (!related) {
+    _getRelatedIds(relational) {
+        if (!relational) {
             return [];
         }
-        if (related.resIds?.length) {
-            return related.resIds;
+        if (relational.resIds?.length) {
+            return relational.resIds;
         }
-        return (related.records || [])
-            .map((workcenter) => this._getWorkcenterId(workcenter))
-            .filter(Boolean);
+        return (relational.records || []).map((record) => getRecordId(record)).filter(Boolean);
     },
 
-    _filterMovesByWorkcenter(moves) {
-        if (this.props.record?.resModel !== "mrp.workorder") {
-            return moves;
-        }
-        const workcenterId = getWorkcenterId(this.props.record.data.workcenter_id);
+    _isMoveRelatedToCurrentOperation(move) {
         const currentOperationId = getRecordId(this.props.record.data.operation_id);
-        const currentWorkorderId = getRecordId(this.props.record);
-        return moves.filter((move) => {
-            const relatedWorkcenters = this._getRelatedWorkcenterIds(move);
-            if (relatedWorkcenters.length) {
-                return !workcenterId || relatedWorkcenters.includes(workcenterId);
-            }
-            const moveOperationId = getRecordId(move.data.operation_id);
-            if (currentOperationId && moveOperationId) {
-                return moveOperationId === currentOperationId;
-            }
-            const moveWorkorderId = getRecordId(move.data.workorder_id);
-            if (currentWorkorderId && moveWorkorderId) {
-                return moveWorkorderId === currentWorkorderId;
-            }
-            return true;
-        });
+        if (!currentOperationId) {
+            return false;
+        }
+        const relatedOperationIds = this._getRelatedIds(move.data.related_operation_ids);
+        if (relatedOperationIds.length) {
+            return relatedOperationIds.includes(currentOperationId);
+        }
+        const moveOperationId = getRecordId(move.data.operation_id);
+        if (moveOperationId) {
+            return moveOperationId === currentOperationId;
+        }
+        // Unmapped moves are not shown on workorder cards.
+        return false;
     },
 
     get moves() {
         if (this.props.record?.resModel !== "mrp.workorder") {
             return this._dedupeRecords(super.moves);
         }
-        // Components live on production.move_raw_ids; filter by related workcenters
-        // so the same move appears on each relevant OT card with the correct context.
+        // Components live on production.move_raw_ids; show only those related to
+        // this card's operation (multi-op BOM lines appear on each matching OT).
         const productionMoves = (this.props.production?.data?.move_raw_ids?.records || []).filter(
-            (move) => !move.data.scrapped && !move.data.check_id?.count
+            (move) =>
+                !move.data.scrapped &&
+                !move.data.check_id?.count &&
+                this._isMoveRelatedToCurrentOperation(move)
         );
-        const filtered = this._filterMovesByWorkcenter(productionMoves);
-        const seen = new Set(filtered.map((move) => this._getRecordKey(move)));
-        const extras = super.moves.filter((move) => !seen.has(this._getRecordKey(move)));
-        return this._dedupeRecords([...filtered, ...extras]);
+        return this._dedupeRecords(productionMoves);
     },
 
     get checks() {
